@@ -1,0 +1,38 @@
+1. The Innovator (Individual Talent)
+This role is typically a student, developer, or standalone talent looking to join a team, get hired, or participate in a hackathon.
+The Form Fields (Target Data):
+Full Name / Contact: Who are they and how do we reach them?
+Core Technical/Business Skills: e.g., Python, UI/UX, Financial Modeling.
+Experience Level: e.g., Student, Junior, Senior.
+Portfolio/Past Projects: GitHub links, past hackathons, or project names.
+
+
+2. The Startup (The Innovating Entity)
+The Form Fields (Target Data):
+Startup Name & One-Liner: What are they called and what do they do?
+Industry / Vertical: e.g., Agritech, Fintech, AI.
+Current Stage: e.g., Idea stage, MVP, Pre-Seed, Seed.
+
+3. The Company (Corporate Partner / Service Provider)
+The Form Fields (Target Data):
+Company Name: The providing entity.
+Campaign / Initiative Name: e.g., "Build With AI 2026 KL".
+Target Audience: Who are they trying to attract? (e.g., Web3 startups, university students).
+Resources / Perks Offered: What tangible things do they give? (e.g., $5k cloud credits, free legal incorporation, API access).
+Success Metric: What does the company want out of this? (e.g., API adoption, hiring talent).
+
+4. The Investor (VC, Angel, or Grant Provider)
+The Form Fields (Target Data):
+Firm / Individual Name: Who is writing the check?
+Target Investment Stages: e.g., Pre-Seed, Series A.
+Preferred Industries: e.g., B2B SaaS, DeepTech, Agnostic.
+Typical Ticket Size: The minimum and maximum capital they usually deploy.
+Non-Financial Value Add: Do they offer network access, operational help, or board guidance?
+
+5. The Mentor (The Expert Validator)
+The Form Fields (Target Data):
+Full Name & Current Title: Who are they and what do they do?
+Niche Expertise: e.g., Go-to-Market Strategy, Cloud Architecture, Pitch Deck Review.
+Years of Experience: How long have they been in the industry?
+Engagement Preference: Do they want to mentor startups 1-on-1, or act as a judge/mentor for a specific company's campaign?
+Bandwidth: How many hours a month can they commit?
