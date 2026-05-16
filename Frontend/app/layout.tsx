@@ -7,7 +7,7 @@ const _geist = Geist({ subsets: ["latin"] });
 const _geistMono = Geist_Mono({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
-  title: 'MyHack Ecosystem Engine',
+  title: 'Jet2Holiday Ecosystem Engine',
   description: 'AI-Powered Innovation Ecosystem Platform',
   generator: 'v0.app',
   icons: {

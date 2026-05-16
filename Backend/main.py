@@ -2,6 +2,7 @@ import os
 import json
 import fitz  # PyMuPDF
 import docx
+import httpx
 import google.generativeai as genai
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -18,24 +19,20 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Configure Gemini
-# Use standard environment variable name
-GOOGLE_API_KEY = os.environ.get("GOOGLE_API_KEY")
+# LLM Configuration
+LLM_PROVIDER = os.environ.get("LLM_PROVIDER", "ollama") # "gemini" or "ollama"
+OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://localhost:11434/api/generate")
+OLLAMA_MODEL = os.environ.get("OLLAMA_MODEL", "gemma2:b")
 
-# DEBUG: Check if the previous suspicious key was intended to be the actual key
-# If GOOGLE_API_KEY is not set, we'll check for the hardcoded string as a fallback for this specific session
+# Configure Gemini (as fallback or optional)
+GOOGLE_API_KEY = os.environ.get("GOOGLE_API_KEY")
 if not GOOGLE_API_KEY:
-    # This was likely the intended key but was used incorrectly as the env var name
     PROBABLE_KEY = "AIzaSyBa5bw_wgYy8Z8BEAfIUGEwHGBRdJRs5Zk"
     if PROBABLE_KEY.startswith("AIzaSy"):
         GOOGLE_API_KEY = PROBABLE_KEY
-        print("DEBUG: Using fallback/recovered Gemini API Key")
 
 if GOOGLE_API_KEY:
     genai.configure(api_key=GOOGLE_API_KEY)
-    print("DEBUG: Gemini API configured successfully")
-else:
-    print("DEBUG: Gemini API Key NOT FOUND in environment variables")
 
 ROLE_QUESTIONS = {
     "innovator": {
@@ -148,19 +145,41 @@ async def upload_document(
         Output ONLY valid JSON.
         """
 
-        print("DEBUG: Calling Gemini API...")
-        try:
-            # Using models/ prefix for more robust model resolution
-            model = genai.GenerativeModel('models/gemini-2.5-flash')
-            response = model.generate_content(f"System Instruction: {system_instruction}\n\nDocument Text:\n{raw_text}")
-            print(f"DEBUG: Gemini response received. Status: SUCCESS")
-        except Exception as e:
-            print(f"DEBUG: Gemini API Call Error: {e}")
-            raise HTTPException(status_code=500, detail=f"Gemini API error: {str(e)}")
+        clean_text = ""
+        if LLM_PROVIDER == "ollama":
+            print(f"DEBUG: Calling Ollama API ({OLLAMA_MODEL})...")
+            try:
+                async with httpx.AsyncClient(timeout=60.0) as client:
+                    response = await client.post(
+                        OLLAMA_URL,
+                        json={
+                            "model": OLLAMA_MODEL,
+                            "prompt": f"{system_instruction}\n\nDocument Text:\n{raw_text}",
+                            "stream": False,
+                            "format": "json"
+                        }
+                    )
+                    response.raise_for_status()
+                    resp_json = response.json()
+                    clean_text = resp_json.get("response", "").strip()
+                    print(f"DEBUG: Ollama response received. Status: SUCCESS")
+            except Exception as e:
+                print(f"DEBUG: Ollama API Call Error: {e}")
+                raise HTTPException(status_code=500, detail=f"Ollama error: {str(e)}")
+        else:
+            print("DEBUG: Calling Gemini API...")
+            try:
+                # Using models/ prefix for more robust model resolution
+                model = genai.GenerativeModel('models/gemini-1.5-flash')
+                response = model.generate_content(f"System Instruction: {system_instruction}\n\nDocument Text:\n{raw_text}")
+                clean_text = response.text.strip()
+                print(f"DEBUG: Gemini response received. Status: SUCCESS")
+            except Exception as e:
+                print(f"DEBUG: Gemini API Call Error: {e}")
+                raise HTTPException(status_code=500, detail=f"Gemini API error: {str(e)}")
         
         # Parse AI response
         try:
-            clean_text = response.text.strip()
             print(f"DEBUG: Raw AI response: {clean_text[:200]}...") # Log first 200 chars
             
             # Remove markdown code blocks if present
@@ -185,7 +204,7 @@ async def upload_document(
             return result
         except Exception as e:
             print(f"DEBUG: AI Response Parsing Error: {e}")
-            print(f"DEBUG: Raw Response was: {response.text}")
+            print(f"DEBUG: Raw Response was: {clean_text}")
             raise HTTPException(status_code=500, detail=f"Failed to parse AI response: {str(e)}")
 
     except HTTPException as he:
