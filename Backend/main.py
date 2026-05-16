@@ -11,6 +11,7 @@ import vector.config
 from vector.db import init_vec_table
 from vector.vector_store import embed_entity, embed_campaign, embed_all_entities, embed_all_campaigns, match_for_entity, search
 
+
 app = FastAPI(title="MyHack Engine AI Ingestion")
 
 # Enable CORS for the frontend
