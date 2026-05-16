@@ -66,7 +66,9 @@ export default function CompanyPage() {
       })
 
       if (!response.ok) {
-        throw new Error("Upload failed")
+        const errorData = await response.json().catch(() => ({ detail: "Unknown server error" }))
+        console.error("Upload failed with status:", response.status, errorData)
+        throw new Error(errorData.detail || `Upload failed with status ${response.status}`)
       }
 
       const data = await response.json()
@@ -80,9 +82,9 @@ export default function CompanyPage() {
         resources_provided: Array.isArray(data.resources_provided) ? data.resources_provided.join(", ") : (data.resources_provided || ""),
         constraints: data.constraints || "",
       })
-    } catch (error) {
+    } catch (error: any) {
       console.error("Error uploading file:", error)
-      alert("Failed to extract data from document.")
+      alert(`Failed to extract data: ${error.message}`)
     } finally {
       setIsProcessing(false)
     }

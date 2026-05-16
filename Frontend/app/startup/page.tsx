@@ -90,7 +90,9 @@ export default function StartupPage() {
       })
 
       if (!response.ok) {
-        throw new Error("Upload failed")
+        const errorData = await response.json().catch(() => ({ detail: "Unknown server error" }))
+        console.error("Upload failed with status:", response.status, errorData)
+        throw new Error(errorData.detail || `Upload failed with status ${response.status}`)
       }
 
       const data = await response.json()
@@ -104,9 +106,9 @@ export default function StartupPage() {
         problem_statement: data.problem_statement || "",
         current_ask: Array.isArray(data.current_ask) ? data.current_ask.join(", ") : (data.current_ask || ""),
       })
-    } catch (error) {
+    } catch (error: any) {
       console.error("Error uploading file:", error)
-      alert("Failed to extract data from document.")
+      alert(`Failed to extract data: ${error.message}`)
     } finally {
       setIsProcessing(false)
     }

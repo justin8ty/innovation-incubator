@@ -1,0 +1,16 @@
+[project]
+name = "innovation-incubator-backend"
+version = "0.1.0"
+description = "FastAPI backend for Innovation Incubator"
+requires-python = ">=3.12,<3.15"
+dependencies = [
+    "fastapi",
+    "uvicorn[standard]",
+    "pymupdf",
+    "google-generativeai",
+    "python-multipart",
+    "python-docx",
+]
+
+[tool.uv]
+package = false
