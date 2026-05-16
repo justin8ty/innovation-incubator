@@ -158,7 +158,7 @@ export function Dashboard() {
               <div className="relative">
                 <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-cyan-500/10 border border-cyan-500/20 mb-6">
                   <Zap className="w-3 h-3 text-cyan-400" />
-                  <span className="text-xs font-medium text-cyan-400 uppercase tracking-wider">The MyHack Engine</span>
+                  <span className="text-xs font-medium text-cyan-400 uppercase tracking-wider">The Nexus Engine</span>
                 </div>
                 
                 <h3 className="text-2xl font-semibold text-foreground mb-6">
@@ -368,11 +368,11 @@ export function Dashboard() {
             <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-primary to-cyan-400 flex items-center justify-center">
               <Brain className="w-4 h-4 text-white" />
             </div>
-            <span className="font-medium text-foreground">MyHack Engine</span>
+            <span className="font-medium text-foreground">Nexus</span>
           </div>
           
           <p className="text-sm text-muted-foreground">
-            2026 MyHack Engine. All rights reserved.
+            2026 Nexus. All rights reserved.
           </p>
         </div>
       </footer>

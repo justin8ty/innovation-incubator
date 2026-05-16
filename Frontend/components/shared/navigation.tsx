@@ -40,7 +40,7 @@ export function Navigation() {
           <div className="w-9 h-9 rounded-lg bg-gradient-to-br from-primary to-cyan-400 flex items-center justify-center">
             <Brain className="w-5 h-5 text-white" />
           </div>
-          <span className="font-semibold text-foreground">MyHack Engine</span>
+          <span className="font-semibold text-foreground">Nexus</span>
         </Link>
 
         {/* Desktop Navigation */}
