@@ -6,7 +6,7 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from app.db.database import SessionLocal
-from app.db.models import Entity, Feedback, Milestone, Relationship, RelationshipType
+from app.db.models import Entity, Feedback, Milestone, Need, Relationship, RelationshipType
 from app.services.scoring import score_relationship
 
 app = FastAPI(title="Innovation Incubator Relationship Graph")
@@ -51,6 +51,34 @@ class MilestoneCreate(BaseModel):
     name: str
     description: str | None = None
     status: str = "TODO"
+
+
+class NeedCreate(BaseModel):
+    title: str
+    description: str | None = None
+    requested_tags: list[str] = []
+
+
+def parse_tags(raw_tags: str | None) -> list[str]:
+    if not raw_tags:
+        return []
+    return [tag.strip() for tag in raw_tags.split(",") if tag.strip()]
+
+
+def dump_tags(tags: list[str]) -> str:
+    return ",".join(tag.strip().lower() for tag in tags if tag.strip())
+
+
+def serialize_need(need: Need) -> dict:
+    return {
+        "id": need.id,
+        "entity_id": need.entity_id,
+        "entity_name": need.entity.name if need.entity else None,
+        "title": need.title,
+        "description": need.description,
+        "requested_tags": parse_tags(need.requested_tags),
+        "status": need.status,
+    }
 
 
 def serialize_entity(entity: Entity) -> dict:
@@ -137,6 +165,30 @@ def create_entity(payload: EntityCreate, db: Session = Depends(get_db)):
     return serialize_entity(entity)
 
 
+@app.get("/needs")
+def list_needs(db: Session = Depends(get_db)):
+    return [serialize_need(need) for need in db.query(Need).order_by(Need.id).all()]
+
+
+@app.post("/entities/{entity_id}/needs")
+def create_need(entity_id: int, payload: NeedCreate, db: Session = Depends(get_db)):
+    entity = db.get(Entity, entity_id)
+    if entity is None:
+        raise HTTPException(status_code=404, detail="entity not found")
+
+    need = Need(
+        entity=entity,
+        title=payload.title,
+        description=payload.description,
+        requested_tags=dump_tags(payload.requested_tags),
+        status="OPEN",
+    )
+    db.add(need)
+    db.commit()
+    db.refresh(need)
+    return serialize_need(need)
+
+
 @app.get("/relationship-types")
 def list_relationship_types(db: Session = Depends(get_db)):
     return [
@@ -182,6 +234,96 @@ def relationship_graph(db: Session = Depends(get_db)):
             }
             for relationship in relationships
         ],
+    }
+
+
+@app.post("/needs/{need_id}/match")
+def match_need(need_id: int, db: Session = Depends(get_db)):
+    need = db.get(Need, need_id)
+    if need is None:
+        raise HTTPException(status_code=404, detail="need not found")
+
+    requester = need.entity
+    requested_tags = set(parse_tags(need.requested_tags))
+    candidates = (
+        db.query(Entity)
+        .filter(Entity.id != requester.id, Entity.role.in_(["MENTOR", "SERVICE_PROVIDER", "PROGRAMME", "PARTNER", "INVESTOR"]))
+        .all()
+    )
+
+    proposals = []
+    for candidate in candidates:
+        candidate_tags = {link.tag.name.lower() for link in candidate.expertise if link.tag and link.tag.name}
+        tag_overlap = len(requested_tags & candidate_tags)
+        if requested_tags and tag_overlap == 0:
+            continue
+
+        if candidate.role == "MENTOR":
+            relationship_type_code = "MENTORSHIP"
+            source, target = candidate, requester
+        elif candidate.role == "SERVICE_PROVIDER":
+            relationship_type_code = "SERVICE_BENEFIT"
+            source, target = candidate, requester
+        elif candidate.role == "PROGRAMME":
+            relationship_type_code = "PROGRAMME_ASSIGNMENT"
+            source, target = requester, candidate
+        elif candidate.role == "INVESTOR":
+            relationship_type_code = "INVESTMENT_INTEREST"
+            source, target = candidate, requester
+        else:
+            relationship_type_code = "PARTNER_INITIATIVE"
+            source, target = candidate, requester
+
+        rel_type = db.query(RelationshipType).filter(RelationshipType.code == relationship_type_code).one_or_none()
+        if rel_type is None:
+            continue
+
+        existing = (
+            db.query(Relationship)
+            .filter(
+                Relationship.source_entity_id == source.id,
+                Relationship.target_entity_id == target.id,
+                Relationship.relationship_type_id == rel_type.id,
+                Relationship.status.in_(["PROPOSED", "PENDING", "ACTIVE"]),
+            )
+            .one_or_none()
+        )
+        if existing:
+            proposals.append(existing)
+            continue
+
+        score = score_relationship(source, target, past_success_score=0.0, mentor_success_score=0.0)
+        tag_boost = min(0.2, tag_overlap * 0.05)
+        strength_score = min(1.0, score.strength_score + tag_boost)
+        relationship = Relationship(
+            source_entity=source,
+            target_entity=target,
+            relationship_type=rel_type,
+            status="PROPOSED",
+            strength_score=round(strength_score, 4),
+            industry_similarity=score.industry_similarity,
+            expertise_alignment=max(score.expertise_alignment, tag_overlap / max(1, len(requested_tags)) if requested_tags else 0.0),
+            stage_match=score.stage_match,
+            geo_match=score.geo_match,
+            past_success_score=score.past_success_score,
+            mentor_success_score=score.mentor_success_score,
+            ai_reasoning_summary=(
+                f"Matched need '{need.title}' with {candidate.name or candidate.role} "
+                f"using overlapping tags: {', '.join(sorted(requested_tags & candidate_tags)) or 'profile context'}."
+            ),
+        )
+        db.add(relationship)
+        proposals.append(relationship)
+
+    need.status = "MATCHED" if proposals else "OPEN"
+    db.commit()
+    for proposal in proposals:
+        db.refresh(proposal)
+
+    proposals.sort(key=lambda relationship: relationship.strength_score or 0.0, reverse=True)
+    return {
+        "need": serialize_need(need),
+        "matches": [serialize_relationship(relationship) for relationship in proposals[:5]],
     }
 
 
@@ -240,6 +382,17 @@ def activate_relationship(relationship_id: int, db: Session = Depends(get_db)):
     return serialize_relationship(relationship)
 
 
+@app.post("/relationships/{relationship_id}/reject")
+def reject_relationship(relationship_id: int, db: Session = Depends(get_db)):
+    relationship = db.get(Relationship, relationship_id)
+    if relationship is None:
+        raise HTTPException(status_code=404, detail="relationship not found")
+    relationship.status = "REJECTED"
+    db.commit()
+    db.refresh(relationship)
+    return serialize_relationship(relationship)
+
+
 @app.post("/relationships/{relationship_id}/complete")
 def complete_relationship(relationship_id: int, db: Session = Depends(get_db)):
     relationship = db.get(Relationship, relationship_id)
@@ -265,6 +418,18 @@ def add_feedback(relationship_id: int, payload: FeedbackCreate, db: Session = De
     db.commit()
     db.refresh(relationship)
     return serialize_relationship(relationship)
+
+
+@app.post("/milestones/{milestone_id}/complete")
+def complete_milestone(milestone_id: int, db: Session = Depends(get_db)):
+    milestone = db.get(Milestone, milestone_id)
+    if milestone is None:
+        raise HTTPException(status_code=404, detail="milestone not found")
+    milestone.status = "DONE"
+    milestone.completed_at = datetime.now(timezone.utc)
+    db.commit()
+    db.refresh(milestone.relationship)
+    return serialize_relationship(milestone.relationship)
 
 
 @app.post("/relationships/{relationship_id}/milestones")

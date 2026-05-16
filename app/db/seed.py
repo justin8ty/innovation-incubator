@@ -1,5 +1,5 @@
 from app.db.database import Base, SessionLocal, engine
-from app.db.models import Entity, EntityExpertise, ExpertiseTag, Feedback, Milestone, Relationship, RelationshipType
+from app.db.models import Entity, EntityExpertise, ExpertiseTag, Feedback, Milestone, Need, Relationship, RelationshipType
 from app.services.scoring import score_relationship
 
 
@@ -47,6 +47,22 @@ def get_or_create_relationship_type(db, code: str, name: str, description: str) 
     db.add(rel_type)
     db.flush()
     return rel_type
+
+
+def get_or_create_need(db, entity: Entity, title: str, description: str, requested_tags: list[str]) -> Need:
+    need = db.query(Need).filter(Need.entity_id == entity.id, Need.title == title).one_or_none()
+    if need:
+        return need
+    need = Need(
+        entity=entity,
+        title=title,
+        description=description,
+        requested_tags=",".join(tag.lower() for tag in requested_tags),
+        status="OPEN",
+    )
+    db.add(need)
+    db.flush()
+    return need
 
 
 def create_relationship(db, source: Entity, target: Entity, rel_type: RelationshipType, reason: str) -> Relationship:
@@ -189,6 +205,20 @@ def seed() -> None:
             programme,
             rel_types["PROGRAMME_ASSIGNMENT"],
             "Seed-stage healthcare startup matches the accelerator thesis.",
+        )
+        get_or_create_need(
+            db,
+            startup,
+            "Need fundraising help and cloud credits",
+            "Looking for a healthcare fundraising mentor and infrastructure credits for pilot deployment.",
+            ["fundraising", "cloud credits", "healthcare"],
+        )
+        get_or_create_need(
+            db,
+            startup_2,
+            "Need financial modeling support",
+            "Need help tightening our financial model before investor meetings.",
+            ["financial modeling", "pitching", "fintech"],
         )
         create_relationship(
             db,

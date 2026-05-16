@@ -32,6 +32,22 @@ class Entity(Base):
         back_populates="target_entity",
     )
     feedback_given = orm_relationship("Feedback", back_populates="from_entity")
+    needs = orm_relationship("Need", back_populates="entity", cascade="all, delete-orphan")
+
+
+class Need(Base):
+    __tablename__ = "needs"
+
+    id = Column(Integer, primary_key=True)
+    entity_id = Column(Integer, ForeignKey("entities.id"), nullable=False)
+    title = Column(String, nullable=False)
+    description = Column(Text)
+    requested_tags = Column(Text)
+    status = Column(String, default="OPEN")
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+    entity = orm_relationship("Entity", back_populates="needs")
 
 
 class ExpertiseTag(Base):
