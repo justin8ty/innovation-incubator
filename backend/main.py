@@ -32,6 +32,17 @@ if GOOGLE_API_KEY:
 else:
     print("DEBUG: Gemini API Key NOT FOUND in environment variables")
 
+
+@app.on_event("startup")
+def debug_registered_routes():
+    routes = sorted(
+        f"{','.join(sorted(getattr(route, 'methods', []) or []))} {getattr(route, 'path', '')}"
+        for route in app.routes
+    )
+    print("DEBUG ingestion main startup: registered routes:", routes)
+    print("DEBUG ingestion main startup: /agent/chat is NOT served by Backend/main.py; run Backend/app/main.py for chatbot routes")
+
+
 ROLE_QUESTIONS = {
     "innovator": {
         "name": "What is your full name?",

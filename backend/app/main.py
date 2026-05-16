@@ -1,16 +1,28 @@
 from datetime import datetime, timezone
+import os
 
+from dotenv import load_dotenv
 from fastapi import Depends, FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
+load_dotenv()
+
 from app.db.database import SessionLocal
 from app.db.models import Entity, Feedback, Milestone, Need, Relationship, RelationshipType
 from app.services.agent import search_response
 from app.services.relationship_search import RelationshipSearchPlan, run_relationship_search
 from app.services.scoring import score_relationship
+
+print(
+    "DEBUG app.main config:",
+    {
+        "google_api_key_configured": bool(os.getenv("GOOGLE_API_KEY") or os.getenv("GEMINI_API_KEY")),
+        "agent_model": os.getenv("AGENT_MODEL", os.getenv("RANK_MODEL", "gemini-2.5-flash-lite")),
+    },
+)
 
 app = FastAPI(title="Innovation Incubator Relationship Graph")
 app.add_middleware(
@@ -21,6 +33,15 @@ app.add_middleware(
     allow_headers=["*"],
 )
 app.mount("/static", StaticFiles(directory="app/static"), name="static")
+
+
+@app.on_event("startup")
+def debug_registered_routes():
+    routes = sorted(
+        f"{','.join(sorted(getattr(route, 'methods', []) or []))} {getattr(route, 'path', '')}"
+        for route in app.routes
+    )
+    print("DEBUG app.main startup: registered routes:", routes)
 
 
 def get_db():
@@ -263,9 +284,19 @@ def ecosystem_search(q: str = Query(..., min_length=1), entity_id: int | None = 
 
 @app.post("/agent/chat")
 def agent_chat(payload: ChatRequest, db: Session = Depends(get_db)):
+    print(
+        "DEBUG agent_chat: received request",
+        {"message_len": len(payload.message), "entity_id": payload.entity_id},
+    )
     try:
-        return search_response(db, payload.message, entity_id=payload.entity_id)
+        response = search_response(db, payload.message, entity_id=payload.entity_id)
+        print(
+            "DEBUG agent_chat: sending response",
+            {"action": response.get("action"), "redirect_url": response.get("redirect_url")},
+        )
+        return response
     except Exception as exc:
+        print("DEBUG agent_chat: error", repr(exc))
         raise HTTPException(status_code=503, detail=f"agent unavailable: {exc}") from exc
 
 
