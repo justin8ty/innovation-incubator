@@ -89,6 +89,72 @@ def match_for_entity(entity_id: int, campaign_id: int = None, top_k: int = 3):
     return results
 
 
+# -- Search Bar Function --
+
+def search(query: str, entity_id: int = None, top_k: int = 1):
+    """
+    Search bar — user types a query, gets AI suggestions + vector results.
+
+    - query: what user typed
+    - entity_id: (optional) who is searching, for personalized AI suggestions
+    - top_k: max AI suggestions
+
+    Returns:
+      {
+        "ai_suggested": [...], 
+        "results": [...] 
+      }
+    """
+    from vector.reranker import rerank
+
+    MAX_DISTANCE = 1.2  # above this = irrelevant, discard
+
+    # (no role filter)
+    entity_results = _search_entities(
+        query_text=query,
+        role_filter=None,
+        top_k=50,
+    )
+    campaign_results = _search_campaigns(
+        query_text=query,
+        top_k=20,
+    )
+
+    if entity_id:
+        entity_results = [r for r in entity_results if r["id"] != entity_id]
+
+    all_results = entity_results + campaign_results
+    all_results = [r for r in all_results if r["distance"] <= MAX_DISTANCE]
+    all_results.sort(key=lambda x: x["distance"])
+
+    # AI Suggested
+    ai_suggested = []
+    if entity_id and all_results:
+        ai_suggested = rerank(
+            query,
+            all_results[:ANN_CAP],
+            requester_id=entity_id,
+            top_k=top_k,
+            mode="search",
+        )
+
+    # remove Ai suggested from vector results
+    ai_ids = set()
+    for r in ai_suggested:
+        key = (r.get("match_type", "entity"), r["id"])
+        ai_ids.add(key)
+
+    results = [
+        r for r in all_results
+        if (r.get("match_type", "entity"), r["id"]) not in ai_ids
+    ]
+
+    return {
+        "ai_suggested": ai_suggested,
+        "results": results,
+    }
+
+
 # -- Embedding Functions --
 
 def embed_entity(entity_id: int):

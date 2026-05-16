@@ -9,7 +9,7 @@ from typing import List, Optional, Dict
 
 import vector.config
 from vector.db import init_vec_table
-from vector.vector_store import embed_entity, embed_campaign, embed_all_entities, embed_all_campaigns, match_for_entity
+from vector.vector_store import embed_entity, embed_campaign, embed_all_entities, embed_all_campaigns, match_for_entity, search
 
 app = FastAPI(title="MyHack Engine AI Ingestion")
 
@@ -225,6 +225,11 @@ async def match(entity_id: int, campaign_id: int = None, top_k: int = 3):
     """
     
     result = match_for_entity(entity_id=entity_id, campaign_id=campaign_id, top_k=top_k)
+    return result
+
+@app.post("/api/v1/vector/search")
+async def search_endpoint(query: str, entity_id: int = None, top_k: int = 1):
+    result = search(query=query, entity_id=entity_id, top_k=top_k)
     return result
 
 @app.on_event("startup")

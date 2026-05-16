@@ -1,6 +1,6 @@
 import json
 from vertexai.generative_models import GenerativeModel
-from vector.prompts import rerank_prompt
+from vector.prompts import rerank_prompt, search_rerank_prompt
 from vector.db import get_db_conn
 
 _model = None
@@ -129,7 +129,7 @@ def _build_candidate_text(candidate: dict, index: int,
         f"EXTERNAL TRACK RECORD (with other entities):\n{external_record}\n"
     )
 
-def rerank(query: str, candidates: list[dict], requester_id: int = None, top_k: int = 5):
+def rerank(query: str, candidates: list[dict], requester_id: int = None, top_k: int = 5, mode: str = "match"):
     if not candidates:
         return []
 
@@ -185,7 +185,10 @@ def rerank(query: str, candidates: list[dict], requester_id: int = None, top_k: 
             startup_context = f"{requester['name']} ({requester['role']}, {requester['industry']}, {requester['stage']}) — {requester['description']}"
         conn2.close()
 
-    prompt = rerank_prompt(query, candidates_text, startup_context)
+    if mode == "search":
+        prompt = search_rerank_prompt(query, candidates_text, startup_context)
+    else:
+        prompt = rerank_prompt(query, candidates_text, startup_context)
 
     model = get_model()
     response = model.generate_content(prompt)
