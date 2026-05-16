@@ -70,8 +70,6 @@ def match_for_entity(entity_id: int, campaign_id: int = None, top_k: int = 3):
     for target_role in targets["entities"]:
         raw = _search_entities(
             query_text=query_text,
-            timezone=entity["timezone"],
-            stage=entity["stage"],
             role_filter=[target_role],
             top_k=ANN_CAP,
         )
@@ -225,8 +223,6 @@ def embed_all_campaigns():
 
 def _search_entities(
     query_text: str,
-    timezone: str = None,
-    stage: str = None,
     role_filter: list = None,
     candidate_pool: int = 100,
     top_k: int = 20,
@@ -258,12 +254,6 @@ def _search_entities(
         role_ph = ",".join("?" * len(role_filter))
         filters.append(f"role IN ({role_ph})")
         params.extend(role_filter)
-    if timezone:
-        filters.append("timezone = ?")
-        params.append(timezone)
-    if stage:
-        filters.append("stage = ?")
-        params.append(stage)
 
     where_clause = ""
     if filters:
