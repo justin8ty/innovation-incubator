@@ -15,6 +15,7 @@ import {
   Shield,
   Globe,
   User,
+  Trophy,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
@@ -41,6 +42,12 @@ const features = [
     title: "2-Step Matchmaking",
     description: "Fast Vector/Cosine Similarity search narrows down data, followed by Gemini Pro contextual reranking.",
     visual: "matchmaking",
+  },
+  {
+    icon: Trophy,
+    title: "Milestone Tracker",
+    description: "Real-time TRL mapping and automated fund disbursement based on verified project maturity.",
+    visual: "milestones",
   },
   {
     icon: GitMerge,
@@ -260,6 +267,20 @@ export function Dashboard() {
                           <Sparkles className="w-5 h-5 text-amber-400 mx-auto mb-1" />
                           <span className="text-[10px] text-muted-foreground">Match</span>
                         </div>
+                      </div>
+                    )}
+                    
+                    {feature.visual === "milestones" && (
+                      <div className="flex items-center justify-between gap-1 h-10">
+                        {[...Array(5)].map((_, i) => (
+                          <div 
+                            key={i} 
+                            className={cn(
+                              "flex-1 h-full rounded-sm border transition-all duration-500",
+                              i < 3 ? "bg-primary/20 border-primary/40 shadow-[0_0_8px_rgba(59,130,246,0.3)]" : "bg-secondary border-border/50"
+                            )} 
+                          />
+                        ))}
                       </div>
                     )}
                     

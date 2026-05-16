@@ -11,6 +11,7 @@ import {
   Menu,
   X,
   BookOpen,
+  Trophy,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
@@ -19,6 +20,7 @@ import { useState } from "react"
 const navLinks = [
   { href: "/", label: "Home", icon: Brain },
   { href: "/campaigns", label: "Campaigns", icon: BookOpen },
+  { href: "/milestones", label: "Milestones", icon: Trophy },
   { href: "/profile", label: "Profile", icon: User },
   { href: "/innovator", label: "Upload Profile", icon: User },
   { href: "/startup", label: "Startup", icon: Rocket },
