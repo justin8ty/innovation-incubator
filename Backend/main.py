@@ -7,6 +7,10 @@ from fastapi import FastAPI, UploadFile, File, Form, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from typing import List, Optional, Dict
 
+import vector.config
+from vector.db import init_vec_table
+from vector.vector_store import embed_entity, embed_campaign, embed_all_entities, embed_all_campaigns, match_for_entity
+
 app = FastAPI(title="MyHack Engine AI Ingestion")
 
 # Enable CORS for the frontend
@@ -167,6 +171,47 @@ async def upload_document(
 @app.get("/health")
 async def health():
     return {"status": "ok", "api_key_configured": GOOGLE_API_KEY is not None}
+
+# -- Vector Search Endpoints --
+
+@app.post("/api/v1/vector/embed/entity")
+async def embed_one_entity(entity_id: int):
+    embed_entity(entity_id)
+    return {"status": "ok", "entity_id": entity_id}
+
+@app.post("/api/v1/vector/embed/campaign")
+async def embed_one_campaign(campaign_id: int):
+    embed_campaign(campaign_id)
+    return {"status": "ok", "campaign_id": campaign_id}
+
+@app.post("/api/v1/vector/embed/all")
+async def embed_all():
+    embed_all_entities()
+    embed_all_campaigns()
+    return {"status": "ok", "message": "All entities and campaigns embedded"}
+
+@app.post("/api/v1/vector/match")
+async def match(entity_id: int, campaign_id: int = None, top_k: int = 3):
+    """
+    Universal matching endpoint.
+    - entity_id: who is searching (any role)
+    - campaign_id: (optional) if a company is searching for their campaign
+    - top_k: how many final results per category
+    """
+    
+    result = match_for_entity(entity_id=entity_id, campaign_id=campaign_id, top_k=top_k)
+    return result
+
+@app.on_event("startup")
+def on_startup():
+    init_vec_table()
+    from vector.db import get_db_conn
+    conn = get_db_conn()
+    count = conn.execute("SELECT COUNT(*) FROM vec_entities").fetchone()[0]
+    conn.close()
+    if count == 0:
+        embed_all_entities()
+        embed_all_campaigns()
 
 if __name__ == "__main__":
     import uvicorn
