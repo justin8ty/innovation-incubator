@@ -77,7 +77,7 @@ export default function CompanyPage() {
         company_name: data.company_name || "",
         campaign_name: data.campaign_name || "",
         target_audience: data.target_audience || "",
-        resources_provided: Array.isArray(data.resources_provided) ? data.resources_provided.join(", ") : "",
+        resources_provided: Array.isArray(data.resources_provided) ? data.resources_provided.join(", ") : (data.resources_provided || ""),
         constraints: data.constraints || "",
       })
     } catch (error) {

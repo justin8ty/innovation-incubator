@@ -53,7 +53,7 @@ export default function MentorPage() {
       setFollowUpQuestions(data.follow_up_questions || [])
       setFormData({
         name: data.name || "",
-        expertise_areas: Array.isArray(data.expertise_areas) ? data.expertise_areas.join(", ") : "",
+        expertise_areas: Array.isArray(data.expertise_areas) ? data.expertise_areas.join(", ") : (data.expertise_areas || ""),
         engagement_preference: data.engagement_preference || "",
       })
     } catch (error) {

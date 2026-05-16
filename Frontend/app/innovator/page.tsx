@@ -63,9 +63,9 @@ export default function InnovatorPage() {
       setFormData({
         name: data.name || "",
         contact_email: data.contact_email || "",
-        skills: Array.isArray(data.skills) ? data.skills.join(", ") : "",
+        skills: Array.isArray(data.skills) ? data.skills.join(", ") : (data.skills || ""),
         experience_level: data.experience_level || "",
-        core_projects: Array.isArray(data.core_projects) ? data.core_projects.join("\n") : "",
+        core_projects: Array.isArray(data.core_projects) ? data.core_projects.join("\n") : (data.core_projects || ""),
         aspirations: data.aspirations || "",
       })
     } catch (error) {

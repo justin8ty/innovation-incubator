@@ -117,10 +117,10 @@ export default function InvestorPage() {
       setFollowUpQuestions(data.follow_up_questions || [])
       setFormData({
         firm_name: data.firm_name || "",
-        investment_stage: Array.isArray(data.investment_stage) ? data.investment_stage.join(", ") : "",
+        investment_stage: Array.isArray(data.investment_stage) ? data.investment_stage.join(", ") : (data.investment_stage || ""),
         ticket_size: data.ticket_size || "",
-        focus_areas: Array.isArray(data.focus_areas) ? data.focus_areas.join(", ") : "",
-        value_add: Array.isArray(data.value_add) ? data.value_add.join(", ") : "",
+        focus_areas: Array.isArray(data.focus_areas) ? data.focus_areas.join(", ") : (data.focus_areas || ""),
+        value_add: Array.isArray(data.value_add) ? data.value_add.join(", ") : (data.value_add || ""),
       })
     } catch (error) {
       console.error("Error uploading file:", error)

@@ -102,7 +102,7 @@ export default function StartupPage() {
         industry: data.industry || "",
         funding_stage: data.funding_stage || "",
         problem_statement: data.problem_statement || "",
-        current_ask: Array.isArray(data.current_ask) ? data.current_ask.join(", ") : "",
+        current_ask: Array.isArray(data.current_ask) ? data.current_ask.join(", ") : (data.current_ask || ""),
       })
     } catch (error) {
       console.error("Error uploading file:", error)
