@@ -22,15 +22,6 @@ app.add_middleware(
 # Use standard environment variable name
 GOOGLE_API_KEY = os.environ.get("GOOGLE_API_KEY")
 
-# DEBUG: Check if the previous suspicious key was intended to be the actual key
-# If GOOGLE_API_KEY is not set, we'll check for the hardcoded string as a fallback for this specific session
-if not GOOGLE_API_KEY:
-    # This was likely the intended key but was used incorrectly as the env var name
-    PROBABLE_KEY = "AIzaSyBa5bw_wgYy8Z8BEAfIUGEwHGBRdJRs5Zk"
-    if PROBABLE_KEY.startswith("AIzaSy"):
-        GOOGLE_API_KEY = PROBABLE_KEY
-        print("DEBUG: Using fallback/recovered Gemini API Key")
-
 if GOOGLE_API_KEY:
     genai.configure(api_key=GOOGLE_API_KEY)
     print("DEBUG: Gemini API configured successfully")
