@@ -1,11 +1,16 @@
-import os
 import json
-import fitz  # PyMuPDF
+import os
+from typing import Dict, List, Optional
+
 import docx
+import fitz  # PyMuPDF
 import google.generativeai as genai
-from fastapi import FastAPI, UploadFile, File, Form, HTTPException
+from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from typing import List, Optional, Dict
+
+from app.main import agent_chat as relationship_agent_chat
+from app.main import search_relationships as relationship_search_relationships
+from app.services.agent import AgentResponse
 
 app = FastAPI(title="MyHack Engine AI Ingestion")
 
@@ -20,7 +25,8 @@ app.add_middleware(
 
 # Configure Gemini
 # Use standard environment variable name
-GOOGLE_API_KEY = os.environ.get("GOOGLE_API_KEY")
+GOOGLE_API_KEY = "MISSING"
+os.environ["GEMINI_API_KEY"] = GOOGLE_API_KEY
 
 if GOOGLE_API_KEY:
     genai.configure(api_key=GOOGLE_API_KEY)
@@ -62,8 +68,9 @@ ROLE_QUESTIONS = {
         "name": "What is your full name?",
         "expertise_areas": "What are your primary areas of industry or technical expertise? (Return as an array of strings)",
         "engagement_preference": "Do you prefer to mentor startups 1-on-1 directly ('startup'), participate as an advisor/judge in broader corporate hackathons ('campaign'), or 'both'?",
-    }
+    },
 }
+
 
 def extract_text_from_pdf(file_path):
     doc = fitz.open(file_path)
@@ -72,20 +79,21 @@ def extract_text_from_pdf(file_path):
         text += page.get_text()
     return text
 
+
 def extract_text_from_docx(file_path):
     doc = docx.Document(file_path)
     return "\n".join([para.text for para in doc.paragraphs])
 
+
 @app.post("/api/v1/upload")
-async def upload_document(
-    file: UploadFile = File(...),
-    role: str = Form(...)
-):
+async def upload_document(file: UploadFile = File(...), role: str = Form(...)):
     if role not in ROLE_QUESTIONS:
         raise HTTPException(status_code=400, detail=f"Invalid role: {role}")
 
     if not GOOGLE_API_KEY:
-        raise HTTPException(status_code=500, detail="Gemini API Key not configured on server.")
+        raise HTTPException(
+            status_code=500, detail="Gemini API Key not configured on server."
+        )
 
     # Save temp file
     temp_path = f"temp_{file.filename}"
@@ -107,92 +115,132 @@ async def upload_document(
                     raw_text = f.read()
             except Exception as e:
                 print(f"DEBUG: Error reading fallback file: {e}")
-                raise HTTPException(status_code=400, detail=f"Unsupported file format or read error: {e}")
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Unsupported file format or read error: {e}",
+                )
 
         if not raw_text.strip():
             print("DEBUG: Extracted text is empty")
-            raise HTTPException(status_code=400, detail="Could not extract text from document.")
+            raise HTTPException(
+                status_code=400, detail="Could not extract text from document."
+            )
 
         print(f"DEBUG: Extracted {len(raw_text)} characters of text")
 
         # AI Extraction Matrix
         questions = ROLE_QUESTIONS[role]
-        
+
         system_instruction = f"""
         You are an automated data-entry assistant for the MyHack Engine ecosystem.
         Your task is to extract information from the provided document text for the role: {role}.
-        
+
         You must return a JSON object with the following keys:
         {json.dumps(list(questions.keys()))}
-        
+
         For each key, follow these rules:
         1. If the information is found in the text, populate the field with the extracted data.
         2. If the field hint says "(Return as an array of strings)", provide an array. Otherwise, provide a string.
         3. If the information is NOT found or is highly ambiguous, set the field to null.
-        
+
         Additionally, include a key 'follow_up_questions' which is an array of strings.
         For every field that is null, add the corresponding tracking question (WITHOUT the array hint) to this array.
-        
+
         Tracking Questions for reference:
         {json.dumps(questions, indent=2)}
-        
+
         Output ONLY valid JSON.
         """
 
         print("DEBUG: Calling Gemini API...")
         try:
             # Using models/ prefix for more robust model resolution
-            model = genai.GenerativeModel('models/gemini-2.5-flash')
-            response = model.generate_content(f"System Instruction: {system_instruction}\n\nDocument Text:\n{raw_text}")
+            model = genai.GenerativeModel("models/gemini-2.5-flash")
+            response = model.generate_content(
+                f"System Instruction: {system_instruction}\n\nDocument Text:\n{raw_text}"
+            )
             print(f"DEBUG: Gemini response received. Status: SUCCESS")
         except Exception as e:
             print(f"DEBUG: Gemini API Call Error: {e}")
             raise HTTPException(status_code=500, detail=f"Gemini API error: {str(e)}")
-        
+
         # Parse AI response
         try:
             clean_text = response.text.strip()
-            print(f"DEBUG: Raw AI response: {clean_text[:200]}...") # Log first 200 chars
-            
+            print(
+                f"DEBUG: Raw AI response: {clean_text[:200]}..."
+            )  # Log first 200 chars
+
             # Remove markdown code blocks if present
             if "```json" in clean_text:
                 clean_text = clean_text.split("```json")[1].split("```")[0].strip()
             elif "```" in clean_text:
                 clean_text = clean_text.split("```")[1].split("```")[0].strip()
-            
+
             result = json.loads(clean_text)
-            
+
             # Post-process to ensure follow_up_questions is correct and hints are removed from questions
             extracted_follow_ups = []
             for key, question in questions.items():
                 clean_question = question.split(" (Return as")[0].strip()
-                if result.get(key) is None or (isinstance(result.get(key), list) and len(result.get(key)) == 0):
-                    result[key] = None # Normalize empty arrays to null for the frontend logic
+                if result.get(key) is None or (
+                    isinstance(result.get(key), list) and len(result.get(key)) == 0
+                ):
+                    result[key] = (
+                        None  # Normalize empty arrays to null for the frontend logic
+                    )
                     extracted_follow_ups.append(clean_question)
-            
+
             result["follow_up_questions"] = extracted_follow_ups
-            
+
             print("DEBUG: Successfully parsed and post-processed result")
             return result
         except Exception as e:
             print(f"DEBUG: AI Response Parsing Error: {e}")
             print(f"DEBUG: Raw Response was: {response.text}")
-            raise HTTPException(status_code=500, detail=f"Failed to parse AI response: {str(e)}")
+            raise HTTPException(
+                status_code=500, detail=f"Failed to parse AI response: {str(e)}"
+            )
 
     except HTTPException as he:
         # Re-raise HTTPExceptions
         raise he
     except Exception as e:
         print(f"DEBUG: Unexpected Error: {e}")
-        raise HTTPException(status_code=500, detail=f"Unexpected server error: {str(e)}")
+        raise HTTPException(
+            status_code=500, detail=f"Unexpected server error: {str(e)}"
+        )
     finally:
         if os.path.exists(temp_path):
             os.remove(temp_path)
+
 
 @app.get("/health")
 async def health():
     return {"status": "ok", "api_key_configured": GOOGLE_API_KEY is not None}
 
+
+@app.get("/debug/routes")
+def debug_routes():
+    return {
+        "app_title": app.title,
+        "api_key_configured": GOOGLE_API_KEY is not None
+        or os.getenv("GEMINI_API_KEY") is not None,
+        "routes": sorted(
+            {
+                f"{','.join(sorted(route.methods or []))} {route.path}"
+                for route in app.routes
+                if hasattr(route, "methods")
+            }
+        ),
+    }
+
+
+app.post("/agent/chat", response_model=AgentResponse)(relationship_agent_chat)
+app.get("/search/relationships")(relationship_search_relationships)
+
+
 if __name__ == "__main__":
     import uvicorn
+
     uvicorn.run(app, host="0.0.0.0", port=8000)

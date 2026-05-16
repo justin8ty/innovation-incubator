@@ -9,6 +9,7 @@ RELATIONSHIP_TYPES = [
     ("PROGRAMME_ASSIGNMENT", "Programme Assignment", "Startup assigned or recommended to a programme."),
     ("PARTNER_INITIATIVE", "Partner Initiative", "Partner connected to a strategic initiative."),
     ("INVESTMENT_INTEREST", "Investment Interest", "Investor interest in a company."),
+    ("INVESTED_IN", "Invested In", "Investor has invested in a company."),
 ]
 
 

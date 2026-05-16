@@ -10,6 +10,8 @@ dependencies = [
     "google-generativeai",
     "python-multipart",
     "python-docx",
+    "sqlalchemy",
+    "alembic",
 ]
 
 [tool.uv]
