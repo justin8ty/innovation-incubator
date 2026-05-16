@@ -84,7 +84,26 @@ export default async function SearchPage({ searchParams }: { searchParams: Promi
         <div>
           <p className="text-sm uppercase tracking-[0.3em] text-muted-foreground">AI Ecosystem Search</p>
           <h1 className="mt-3 text-4xl font-bold">Search results</h1>
-          <p className="mt-3 text-muted-foreground">{query ? `Showing vector, reranked, and SQL relationship results for “${query}”.` : "Ask the AI agent or add ?q= to search."}</p>
+          {query && (
+            <p className="mt-3 text-muted-foreground">
+              Showing vector, reranked, and SQL relationship results for “{query}”.
+            </p>
+          )}
+          <form action="/search" className="mt-6 flex flex-col gap-3 sm:flex-row">
+            <input
+              type="search"
+              name="q"
+              defaultValue={query}
+              placeholder="Search startups, mentors, companies, expertise..."
+              className="h-11 flex-1 rounded-lg border border-border bg-background px-4 text-sm text-foreground outline-none transition-colors placeholder:text-muted-foreground focus:border-primary"
+            />
+            <button
+              type="submit"
+              className="h-11 rounded-lg bg-primary px-6 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
+            >
+              Search
+            </button>
+          </form>
         </div>
 
         {payload?.errors?.vector && <p className="rounded-xl border border-yellow-500/40 bg-yellow-500/10 p-3 text-sm text-yellow-600">Vector search unavailable: {payload.errors.vector}</p>}
