@@ -26,6 +26,11 @@ export function FormField({
 }: FormFieldProps) {
   const [localValue, setLocalValue] = useState(value)
 
+  // Sync local state with prop changes (needed for AI auto-fill)
+  if (value !== localValue && value !== undefined) {
+    setLocalValue(value)
+  }
+
   const handleChange = (newValue: string) => {
     setLocalValue(newValue)
     onChange?.(newValue)

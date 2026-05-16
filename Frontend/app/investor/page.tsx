@@ -108,7 +108,9 @@ export default function InvestorPage() {
       })
 
       if (!response.ok) {
-        throw new Error("Upload failed")
+        const errorData = await response.json().catch(() => ({ detail: "Unknown server error" }))
+        console.error("Upload failed with status:", response.status, errorData)
+        throw new Error(errorData.detail || `Upload failed with status ${response.status}`)
       }
 
       const data = await response.json()
@@ -122,9 +124,9 @@ export default function InvestorPage() {
         focus_areas: Array.isArray(data.focus_areas) ? data.focus_areas.join(", ") : (data.focus_areas || ""),
         value_add: Array.isArray(data.value_add) ? data.value_add.join(", ") : (data.value_add || ""),
       })
-    } catch (error) {
+    } catch (error: any) {
       console.error("Error uploading file:", error)
-      alert("Failed to extract data from document.")
+      alert(`Failed to extract data: ${error.message}`)
     } finally {
       setIsProcessing(false)
     }

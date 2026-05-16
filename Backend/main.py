@@ -19,10 +19,23 @@ app.add_middleware(
 )
 
 # Configure Gemini
-# Ensure GOOGLE_API_KEY is set in environment
-GOOGLE_API_KEY = os.environ.get("AIzaSyBa5bw_wgYy8Z8BEAfIUGEwHGBRdJRs5Zk")
+# Use standard environment variable name
+GOOGLE_API_KEY = os.environ.get("GOOGLE_API_KEY")
+
+# DEBUG: Check if the previous suspicious key was intended to be the actual key
+# If GOOGLE_API_KEY is not set, we'll check for the hardcoded string as a fallback for this specific session
+if not GOOGLE_API_KEY:
+    # This was likely the intended key but was used incorrectly as the env var name
+    PROBABLE_KEY = "AIzaSyBa5bw_wgYy8Z8BEAfIUGEwHGBRdJRs5Zk"
+    if PROBABLE_KEY.startswith("AIzaSy"):
+        GOOGLE_API_KEY = PROBABLE_KEY
+        print("DEBUG: Using fallback/recovered Gemini API Key")
+
 if GOOGLE_API_KEY:
     genai.configure(api_key=GOOGLE_API_KEY)
+    print("DEBUG: Gemini API configured successfully")
+else:
+    print("DEBUG: Gemini API Key NOT FOUND in environment variables")
 
 ROLE_QUESTIONS = {
     "innovator": {
@@ -90,6 +103,7 @@ async def upload_document(
 
     try:
         # Extract text
+        print(f"DEBUG: Processing file {file.filename} for role {role}")
         raw_text = ""
         if file.filename.lower().endswith(".pdf"):
             raw_text = extract_text_from_pdf(temp_path)
@@ -100,11 +114,15 @@ async def upload_document(
             try:
                 with open(temp_path, "r", encoding="utf-8", errors="ignore") as f:
                     raw_text = f.read()
-            except:
-                raise HTTPException(status_code=400, detail="Unsupported file format")
+            except Exception as e:
+                print(f"DEBUG: Error reading fallback file: {e}")
+                raise HTTPException(status_code=400, detail=f"Unsupported file format or read error: {e}")
 
         if not raw_text.strip():
+            print("DEBUG: Extracted text is empty")
             raise HTTPException(status_code=400, detail="Could not extract text from document.")
+
+        print(f"DEBUG: Extracted {len(raw_text)} characters of text")
 
         # AI Extraction Matrix
         questions = ROLE_QUESTIONS[role]
@@ -130,12 +148,21 @@ async def upload_document(
         Output ONLY valid JSON.
         """
 
-        model = genai.GenerativeModel('gemini-1.5-flash')
-        response = model.generate_content(f"System Instruction: {system_instruction}\n\nDocument Text:\n{raw_text}")
+        print("DEBUG: Calling Gemini API...")
+        try:
+            # Using models/ prefix for more robust model resolution
+            model = genai.GenerativeModel('models/gemini-2.5-flash')
+            response = model.generate_content(f"System Instruction: {system_instruction}\n\nDocument Text:\n{raw_text}")
+            print(f"DEBUG: Gemini response received. Status: SUCCESS")
+        except Exception as e:
+            print(f"DEBUG: Gemini API Call Error: {e}")
+            raise HTTPException(status_code=500, detail=f"Gemini API error: {str(e)}")
         
         # Parse AI response
         try:
             clean_text = response.text.strip()
+            print(f"DEBUG: Raw AI response: {clean_text[:200]}...") # Log first 200 chars
+            
             # Remove markdown code blocks if present
             if "```json" in clean_text:
                 clean_text = clean_text.split("```json")[1].split("```")[0].strip()
@@ -154,12 +181,19 @@ async def upload_document(
             
             result["follow_up_questions"] = extracted_follow_ups
             
+            print("DEBUG: Successfully parsed and post-processed result")
             return result
         except Exception as e:
-            print(f"AI Response Error: {e}")
-            print(f"Raw Response: {response.text}")
-            raise HTTPException(status_code=500, detail="Failed to parse AI response")
+            print(f"DEBUG: AI Response Parsing Error: {e}")
+            print(f"DEBUG: Raw Response was: {response.text}")
+            raise HTTPException(status_code=500, detail=f"Failed to parse AI response: {str(e)}")
 
+    except HTTPException as he:
+        # Re-raise HTTPExceptions
+        raise he
+    except Exception as e:
+        print(f"DEBUG: Unexpected Error: {e}")
+        raise HTTPException(status_code=500, detail=f"Unexpected server error: {str(e)}")
     finally:
         if os.path.exists(temp_path):
             os.remove(temp_path)

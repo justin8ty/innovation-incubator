@@ -44,7 +44,9 @@ export default function MentorPage() {
       })
 
       if (!response.ok) {
-        throw new Error("Upload failed")
+        const errorData = await response.json().catch(() => ({ detail: "Unknown server error" }))
+        console.error("Upload failed with status:", response.status, errorData)
+        throw new Error(errorData.detail || `Upload failed with status ${response.status}`)
       }
 
       const data = await response.json()
@@ -56,9 +58,9 @@ export default function MentorPage() {
         expertise_areas: Array.isArray(data.expertise_areas) ? data.expertise_areas.join(", ") : (data.expertise_areas || ""),
         engagement_preference: data.engagement_preference || "",
       })
-    } catch (error) {
+    } catch (error: any) {
       console.error("Error uploading file:", error)
-      alert("Failed to extract data from document.")
+      alert(`Failed to extract data: ${error.message}`)
     } finally {
       setIsProcessing(false)
     }

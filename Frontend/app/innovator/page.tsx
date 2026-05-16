@@ -53,7 +53,9 @@ export default function InnovatorPage() {
       })
 
       if (!response.ok) {
-        throw new Error("Upload failed")
+        const errorData = await response.json().catch(() => ({ detail: "Unknown server error" }))
+        console.error("Upload failed with status:", response.status, errorData)
+        throw new Error(errorData.detail || `Upload failed with status ${response.status}`)
       }
 
       const data = await response.json()
@@ -68,9 +70,9 @@ export default function InnovatorPage() {
         core_projects: Array.isArray(data.core_projects) ? data.core_projects.join("\n") : (data.core_projects || ""),
         aspirations: data.aspirations || "",
       })
-    } catch (error) {
+    } catch (error: any) {
       console.error("Error uploading file:", error)
-      alert("Failed to extract data from document.")
+      alert(`Failed to extract data: ${error.message}`)
     } finally {
       setIsProcessing(false)
     }
