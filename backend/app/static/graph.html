@@ -1,0 +1,129 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Innovation Ecosystem Graph</title>
+  <script src="https://unpkg.com/cytoscape@3.29.2/dist/cytoscape.min.js"></script>
+  <style>
+    body { margin: 0; font-family: Inter, sans-serif; background: #0f172a; color: #e5e7eb; }
+    header { padding: 16px 20px; border-bottom: 1px solid rgba(255,255,255,0.12); background: #111827; }
+    h1 { margin: 0; font-size: 18px; }
+    .subtext { margin-top: 4px; color: #9ca3af; font-size: 13px; }
+    #layout { display: grid; grid-template-columns: 1fr 320px; height: calc(100vh - 73px); }
+    #cy { width: 100%; height: 100%; background: radial-gradient(circle at top, #1e293b, #020617); }
+    aside { border-left: 1px solid rgba(255,255,255,0.12); padding: 16px; background: #111827; overflow: auto; }
+    .legend-item { display: flex; align-items: center; gap: 8px; margin: 8px 0; font-size: 13px; }
+    .dot { width: 12px; height: 12px; border-radius: 999px; display: inline-block; }
+    pre { white-space: pre-wrap; word-break: break-word; padding: 12px; background: #020617; border: 1px solid rgba(255,255,255,0.12); border-radius: 8px; font-size: 11px; color: #cbd5e1; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Innovation Ecosystem Relationship Graph</h1>
+    <div class="subtext">Nodes are ecosystem entities. Edges are programmable relationships.</div>
+  </header>
+
+  <div id="layout">
+    <div id="cy"></div>
+    <aside>
+      <h3>Legend</h3>
+      <div class="legend-item"><span class="dot" style="background:#38bdf8"></span> STARTUP</div>
+      <div class="legend-item"><span class="dot" style="background:#a78bfa"></span> MENTOR</div>
+      <div class="legend-item"><span class="dot" style="background:#34d399"></span> SERVICE_PROVIDER</div>
+      <div class="legend-item"><span class="dot" style="background:#fbbf24"></span> PROGRAMME</div>
+      <h3>Selected Entity</h3>
+      <pre id="details">Click a node or edge to see metadata.</pre>
+    </aside>
+  </div>
+
+  <script>
+    const roleColors = {
+      STARTUP: '#38bdf8',
+      MENTOR: '#a78bfa',
+      SERVICE_PROVIDER: '#34d399',
+      PROGRAMME: '#fbbf24'
+    };
+
+    const details = document.getElementById('details');
+
+    fetch('/graph')
+      .then((res) => res.json())
+      .then((graph) => {
+        const elements = [
+          ...graph.nodes.map((node) => ({
+            data: { ...node, color: roleColors[node.role] || '#f87171' }
+          })),
+          ...graph.edges.map((edge) => ({
+            data: {
+              ...edge,
+              // THINNER CALCULATION: Range 1.5px to 4.5px
+              width: 1.5 + (edge.strength_score || 0) * 8
+            }
+          }))
+        ];
+
+        window.cy = cytoscape({
+          container: document.getElementById('cy'),
+          elements,
+          style: [
+            {
+              selector: 'node',
+              style: {
+                'background-color': 'data(color)',
+                'label': 'data(label)',
+                'color': '#ffffff',
+                'text-outline-color': '#020617',
+                'text-outline-width': 2,
+                'font-size': 11,
+                'width': 35,
+                'height': 35
+              }
+            },
+            {
+              selector: 'edge',
+              style: {
+                'width': 'data(width)',
+                'line-color': '#64748b',
+                'target-arrow-color': '#64748b',
+                'target-arrow-shape': 'triangle',
+                'arrow-scale': 0.8,
+                // BEZIER curves ensure multiple edges between same nodes don't overlap
+                'curve-style': 'bezier', 
+                'control-point-step-size': 30,
+                'label': 'data(label)',
+                'font-size': 8,
+                'color': '#cbd5e1',
+                'text-background-color': '#020617',
+                'text-background-opacity': 0.8,
+                'text-rotation': 'autorotate'
+              }
+            },
+            {
+              selector: 'edge[status = "DECAYING"]',
+              style: {
+                'line-color': '#ef4444',
+                'target-arrow-color': '#ef4444',
+                'line-style': 'dashed'
+              }
+            },
+            {
+              selector: 'edge[status = "ACTIVE"]',
+              style: {
+                'line-color': '#3b82f6',
+                'target-arrow-color': '#3b82f6'
+              }
+            }
+          ],
+          layout: { name: 'cose', padding: 80, animate: true }
+        });
+
+        window.cy.on('tap', 'node, edge', (event) => {
+          details.textContent = JSON.stringify(event.target.data(), null, 2);
+        });
+
+        window.cy.ready(() => { window.cy.fit(); });
+      });
+  </script>
+</body>
+</html>
