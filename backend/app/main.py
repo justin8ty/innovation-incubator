@@ -1,34 +1,15 @@
 from datetime import datetime, timezone
 
-import os
-
-from fastapi import Depends, FastAPI, HTTPException, Query
-from fastapi.middleware.cors import CORSMiddleware
+from fastapi import Depends, FastAPI, HTTPException
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
-from sqlalchemy import or_
-from sqlalchemy.orm import Session, aliased
+from sqlalchemy.orm import Session
 
 from app.db.database import SessionLocal
 from app.db.models import Entity, Feedback, Milestone, Need, Relationship, RelationshipType
-from app.services.agent import AgentRequest, AgentResponse, run_agent
 from app.services.scoring import score_relationship
 
 app = FastAPI(title="Innovation Incubator Relationship Graph")
-
-allowed_origins = [
-    origin.strip()
-    for origin in os.getenv("CORS_ORIGINS", "http://localhost:3000,http://127.0.0.1:3000").split(",")
-    if origin.strip()
-]
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=allowed_origins,
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
 app.mount("/static", StaticFiles(directory="app/static"), name="static")
 
 
@@ -168,95 +149,6 @@ def serialize_relationship(relationship: Relationship) -> dict:
 @app.get("/")
 def root():
     return {"status": "ok", "service": "relationship-graph"}
-
-
-@app.get("/debug/routes")
-def debug_routes():
-    return {
-        "app_title": app.title,
-        "gemini_configured": os.getenv("GEMINI_API_KEY") is not None,
-        "routes": sorted(
-            {
-                f"{','.join(sorted(route.methods or []))} {route.path}"
-                for route in app.routes
-                if hasattr(route, "methods")
-            }
-        ),
-    }
-
-
-@app.post("/agent/chat", response_model=AgentResponse)
-def agent_chat(payload: AgentRequest):
-    return run_agent(payload.message)
-
-
-def role_filter_values(role: str) -> list[str]:
-    normalized = role.strip().upper()
-    if normalized == "COMPANY":
-        return ["COMPANY", "STARTUP"]
-    return [normalized]
-
-
-@app.get("/search/relationships")
-def search_relationships(
-    source_name: str | None = Query(default=None),
-    source_role: str | None = Query(default=None),
-    target_name: str | None = Query(default=None),
-    target_role: str | None = Query(default=None),
-    relationship_type: str | None = Query(default=None),
-    status: str | None = Query(default=None),
-    industry: str | None = Query(default=None),
-    stage: str | None = Query(default=None),
-    country: str | None = Query(default=None),
-    db: Session = Depends(get_db),
-):
-    SourceEntity = aliased(Entity)
-    TargetEntity = aliased(Entity)
-
-    query = (
-        db.query(Relationship)
-        .join(SourceEntity, Relationship.source_entity_id == SourceEntity.id)
-        .join(TargetEntity, Relationship.target_entity_id == TargetEntity.id)
-        .outerjoin(RelationshipType, Relationship.relationship_type_id == RelationshipType.id)
-    )
-
-    if source_name:
-        query = query.filter(SourceEntity.name.ilike(f"%{source_name.strip()}%"))
-    if target_name:
-        query = query.filter(TargetEntity.name.ilike(f"%{target_name.strip()}%"))
-    if source_role:
-        query = query.filter(SourceEntity.role.in_(role_filter_values(source_role)))
-    if target_role:
-        query = query.filter(TargetEntity.role.in_(role_filter_values(target_role)))
-    if relationship_type:
-        query = query.filter(RelationshipType.code == relationship_type.strip().upper())
-    if status:
-        query = query.filter(Relationship.status == status.strip().upper())
-    if industry:
-        value = f"%{industry.strip()}%"
-        query = query.filter(or_(SourceEntity.industry.ilike(value), TargetEntity.industry.ilike(value)))
-    if stage:
-        value = f"%{stage.strip()}%"
-        query = query.filter(or_(SourceEntity.stage.ilike(value), TargetEntity.stage.ilike(value)))
-    if country:
-        value = f"%{country.strip()}%"
-        query = query.filter(or_(SourceEntity.country.ilike(value), TargetEntity.country.ilike(value)))
-
-    relationships = query.order_by(Relationship.strength_score.desc(), Relationship.id.desc()).limit(50).all()
-    return {
-        "filters": {
-            "source_name": source_name,
-            "source_role": source_role,
-            "target_name": target_name,
-            "target_role": target_role,
-            "relationship_type": relationship_type,
-            "status": status,
-            "industry": industry,
-            "stage": stage,
-            "country": country,
-        },
-        "results": [serialize_relationship(relationship) for relationship in relationships],
-    }
 
 
 @app.get("/entities")
