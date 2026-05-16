@@ -1,15 +1,25 @@
 from datetime import datetime, timezone
 
-from fastapi import Depends, FastAPI, HTTPException
+from fastapi import Depends, FastAPI, HTTPException, Query
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from app.db.database import SessionLocal
 from app.db.models import Entity, Feedback, Milestone, Need, Relationship, RelationshipType
+from app.services.agent import search_response
+from app.services.relationship_search import RelationshipSearchPlan, run_relationship_search
 from app.services.scoring import score_relationship
 
 app = FastAPI(title="Innovation Incubator Relationship Graph")
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:3000", "http://127.0.0.1:3000"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 app.mount("/static", StaticFiles(directory="app/static"), name="static")
 
 
@@ -57,6 +67,21 @@ class NeedCreate(BaseModel):
     title: str
     description: str | None = None
     requested_tags: list[str] = []
+
+
+class ChatRequest(BaseModel):
+    message: str
+    entity_id: int | None = None
+
+
+class RelationshipSearchRequest(BaseModel):
+    source_name: str | None = None
+    target_name: str | None = None
+    source_role: str | None = None
+    target_role: str | None = None
+    relationship_type: str | None = None
+    expertise: str | None = None
+    count_only: bool = False
 
 
 def parse_tags(raw_tags: str | None) -> list[str]:
@@ -203,6 +228,50 @@ def list_relationships(db: Session = Depends(get_db)):
         serialize_relationship(relationship)
         for relationship in db.query(Relationship).order_by(Relationship.id).all()
     ]
+
+
+@app.get("/search")
+def ecosystem_search(q: str = Query(..., min_length=1), entity_id: int | None = None, db: Session = Depends(get_db)):
+    vector_payload = {"ai_suggested": [], "results": [], "error": None}
+    try:
+        from vector.vector_store import search as vector_search
+
+        vector_payload = vector_search(q, entity_id=entity_id, top_k=5)
+        vector_payload.setdefault("error", None)
+    except Exception as exc:
+        vector_payload = {"ai_suggested": [], "results": [], "error": str(exc)}
+
+    sql_payload = {"query_plan": {}, "count": 0, "relationships": [], "expertise_matches": [], "error": None}
+    try:
+        agent_payload = search_response(db, q, entity_id=entity_id)
+        sql_payload = agent_payload.get("sql_results", sql_payload)
+        sql_payload["error"] = None
+    except Exception as exc:
+        sql_payload["error"] = str(exc)
+
+    return {
+        "query": q,
+        "vector_results": vector_payload.get("results", []),
+        "reranked_results": vector_payload.get("ai_suggested", []),
+        "sql_results": sql_payload,
+        "errors": {
+            "vector": vector_payload.get("error"),
+            "sql": sql_payload.get("error"),
+        },
+    }
+
+
+@app.post("/agent/chat")
+def agent_chat(payload: ChatRequest, db: Session = Depends(get_db)):
+    try:
+        return search_response(db, payload.message, entity_id=payload.entity_id)
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail=f"agent unavailable: {exc}") from exc
+
+
+@app.post("/relationships/search")
+def relationship_search(payload: RelationshipSearchRequest, db: Session = Depends(get_db)):
+    return run_relationship_search(db, RelationshipSearchPlan(**payload.model_dump()))
 
 
 @app.get("/graph")
