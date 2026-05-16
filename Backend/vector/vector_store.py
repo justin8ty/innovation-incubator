@@ -132,7 +132,7 @@ def search(query: str, entity_id: int = None, top_k: int = 1):
 
     # AI Suggested
     ai_suggested = []
-    if entity_id and all_results:
+    if all_results:
         ai_suggested = rerank(
             query,
             all_results[:ANN_CAP],
