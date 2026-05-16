@@ -107,13 +107,13 @@ export default function CompanyPage() {
           <div className="mb-8">
             <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-primary/10 border border-primary/20 mb-4">
               <Building2 className="w-4 h-4 text-primary" />
-              <span className="text-sm text-primary font-medium">Company Hub</span>
+              <span className="text-sm text-primary font-medium">Campaign Ops Portal</span>
             </div>
             <h1 className="text-3xl md:text-4xl font-bold text-foreground mb-2">
-              Campaign Management Center
+              Campaign Management
             </h1>
             <p className="text-muted-foreground text-lg max-w-2xl">
-              Manage resource perks, design accelerator campaigns, and track active ecosystem connections.
+              Design accelerator campaigns, manage resource perks, and track active ecosystem connections.
             </p>
           </div>
 

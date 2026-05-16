@@ -14,6 +14,7 @@ import {
   Sparkles,
   Shield,
   Globe,
+  User,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
@@ -87,14 +88,16 @@ export function Dashboard() {
           <div className="mt-10 flex flex-col sm:flex-row items-center justify-center gap-4">
             <Link href="/innovator">
               <Button size="lg" className="bg-primary hover:bg-primary/90 text-primary-foreground gap-2 px-8 h-12 text-base">
-                Launch AI Onboarding
+                Start AI Onboarding
                 <ArrowRight className="w-5 h-5" />
               </Button>
             </Link>
-            <Button size="lg" variant="outline" className="border-border hover:bg-secondary gap-2 px-8 h-12 text-base">
-              <Network className="w-5 h-5" />
-              Explore Vector Network Map
-            </Button>
+            <Link href="/profile">
+              <Button size="lg" variant="outline" className="border-border hover:bg-secondary gap-2 px-8 h-12 text-base">
+                <User className="w-5 h-5" />
+                View Demo Profiles
+              </Button>
+            </Link>
           </div>
         </div>
       </section>

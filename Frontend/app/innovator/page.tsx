@@ -95,13 +95,13 @@ export default function InnovatorPage() {
           <div className="mb-8">
             <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-primary/10 border border-primary/20 mb-4">
               <User className="w-4 h-4 text-primary" />
-              <span className="text-sm text-primary font-medium">Innovator Portal</span>
+              <span className="text-sm text-primary font-medium">Profile Ingestion</span>
             </div>
             <h1 className="text-3xl md:text-4xl font-bold text-foreground mb-2">
-              Individual Talent Workspace
+              Upload Talent Profile
             </h1>
             <p className="text-muted-foreground text-lg max-w-2xl">
-              Upload your credentials and let AI verify your profile metrics for seamless ecosystem matching.
+              Upload your resume or portfolio and let AI map your skills to the ecosystem's vector space.
             </p>
           </div>
 

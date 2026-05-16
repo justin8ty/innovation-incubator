@@ -2,15 +2,51 @@ import os
 import json
 import fitz  # PyMuPDF
 import docx
-import httpx
 import google.generativeai as genai
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from typing import List, Optional, Dict
+import shutil
+from fastapi.staticfiles import StaticFiles
+from moviepy import VideoFileClip
+from google.cloud import speech
+from google.oauth2 import service_account
 
 app = FastAPI(title="MyHack Engine AI Ingestion")
 
-# Enable CORS for the frontend
+# GCP Credentials Configuration
+ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+GCP_CREDS_PATH = os.path.join(ROOT_DIR, "gcp-credentials.json")
+
+if os.path.exists(GCP_CREDS_PATH):
+    try:
+        credentials = service_account.Credentials.from_service_account_file(GCP_CREDS_PATH)
+        speech_client = speech.SpeechClient(credentials=credentials)
+        print("DEBUG: [SUCCESS] GCP Speech Client (v1) initialized")
+    except Exception as e:
+        print(f"DEBUG: [ERROR] GCP Speech Client failed: {e}")
+        speech_client = None
+else:
+    speech_client = None
+
+# Configure Gemini
+GOOGLE_API_KEY = os.environ.get("GOOGLE_API_KEY")
+if not GOOGLE_API_KEY:
+    # Key recovered from previous session
+    GOOGLE_API_KEY = "AIzaSyBa5bw_wgYy8Z8BEAfIUGEwHGBRdJRs5Zk"
+
+if GOOGLE_API_KEY:
+    genai.configure(api_key=GOOGLE_API_KEY)
+    print(f"DEBUG: Gemini AI Engine Activated (Key: {GOOGLE_API_KEY[:10]}...)")
+else:
+    print("DEBUG: [CRITICAL] No Gemini API Key Found")
+
+GEMINI_MODEL = "models/gemini-2.5-flash"
+
+# Create assets directory
+os.makedirs("assets/pitches", exist_ok=True)
+app.mount("/assets", StaticFiles(directory="assets"), name="assets")
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -18,21 +54,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-# LLM Configuration
-LLM_PROVIDER = os.environ.get("LLM_PROVIDER", "ollama") # "gemini" or "ollama"
-OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://localhost:11434/api/generate")
-OLLAMA_MODEL = os.environ.get("OLLAMA_MODEL", "gemma2:b")
-
-# Configure Gemini (as fallback or optional)
-GOOGLE_API_KEY = os.environ.get("GOOGLE_API_KEY")
-if not GOOGLE_API_KEY:
-    PROBABLE_KEY = "AIzaSyBa5bw_wgYy8Z8BEAfIUGEwHGBRdJRs5Zk"
-    if PROBABLE_KEY.startswith("AIzaSy"):
-        GOOGLE_API_KEY = PROBABLE_KEY
-
-if GOOGLE_API_KEY:
-    genai.configure(api_key=GOOGLE_API_KEY)
 
 ROLE_QUESTIONS = {
     "innovator": {
@@ -56,13 +77,6 @@ ROLE_QUESTIONS = {
         "target_audience": "What type of startup or innovator is your ideal participant for this initiative?",
         "resources_provided": "What specific perks, resources, or API access are you offering to the participants? (Return as an array of strings)",
         "constraints": "What are the eligibility constraints or limitations for this program (e.g., location, stage)?",
-    },
-    "investor": {
-        "firm_name": "What is the name of your investment firm or fund?",
-        "investment_stage": "Which specific funding stages do you primarily target (e.g., Seed, Series A)? (Return as an array of strings)",
-        "ticket_size": "What is your typical investment ticket size (minimum and maximum capital deployed)?",
-        "focus_areas": "What are your primary industry or technology focus areas (e.g., Fintech, AI, HealthTech)? (Return as an array of strings)",
-        "value_add": "What non-financial benefits or strategic value do you provide to your portfolio companies? (Return as an array of strings)",
     },
     "mentor": {
         "name": "What is your full name?",
@@ -91,135 +105,136 @@ async def upload_document(
         raise HTTPException(status_code=400, detail=f"Invalid role: {role}")
 
     if not GOOGLE_API_KEY:
-        raise HTTPException(status_code=500, detail="Gemini API Key not configured on server.")
+        raise HTTPException(status_code=500, detail="Gemini API Key missing")
 
-    # Save temp file
     temp_path = f"temp_{file.filename}"
     with open(temp_path, "wb") as buffer:
         buffer.write(await file.read())
 
     try:
-        # Extract text
-        print(f"DEBUG: Processing file {file.filename} for role {role}")
         raw_text = ""
         if file.filename.lower().endswith(".pdf"):
             raw_text = extract_text_from_pdf(temp_path)
         elif file.filename.lower().endswith(".docx"):
             raw_text = extract_text_from_docx(temp_path)
         else:
-            # Fallback for txt or other formats
-            try:
-                with open(temp_path, "r", encoding="utf-8", errors="ignore") as f:
-                    raw_text = f.read()
-            except Exception as e:
-                print(f"DEBUG: Error reading fallback file: {e}")
-                raise HTTPException(status_code=400, detail=f"Unsupported file format or read error: {e}")
+            with open(temp_path, "r", encoding="utf-8", errors="ignore") as f:
+                raw_text = f.read()
 
         if not raw_text.strip():
-            print("DEBUG: Extracted text is empty")
-            raise HTTPException(status_code=400, detail="Could not extract text from document.")
+            raise HTTPException(status_code=400, detail="Document is empty")
 
-        print(f"DEBUG: Extracted {len(raw_text)} characters of text")
-
-        # AI Extraction Matrix
         questions = ROLE_QUESTIONS[role]
-        
         system_instruction = f"""
-        You are an automated data-entry assistant for the MyHack Engine ecosystem.
-        Your task is to extract information from the provided document text for the role: {role}.
-        
-        You must return a JSON object with the following keys:
-        {json.dumps(list(questions.keys()))}
-        
-        For each key, follow these rules:
-        1. If the information is found in the text, populate the field with the extracted data.
-        2. If the field hint says "(Return as an array of strings)", provide an array. Otherwise, provide a string.
-        3. If the information is NOT found or is highly ambiguous, set the field to null.
-        
-        Additionally, include a key 'follow_up_questions' which is an array of strings.
-        For every field that is null, add the corresponding tracking question (WITHOUT the array hint) to this array.
-        
-        Tracking Questions for reference:
-        {json.dumps(questions, indent=2)}
-        
+        Extract data for the role: {role}.
+        Return JSON object with these keys: {json.dumps(list(questions.keys()))}
+        Rules: Populate found info, arrays for array-hints, null for missing.
+        Include 'follow_up_questions' array of tracking questions for every null field.
+        Reference: {json.dumps(questions)}
         Output ONLY valid JSON.
         """
 
-        clean_text = ""
-        if LLM_PROVIDER == "ollama":
-            print(f"DEBUG: Calling Ollama API ({OLLAMA_MODEL})...")
-            try:
-                async with httpx.AsyncClient(timeout=60.0) as client:
-                    response = await client.post(
-                        OLLAMA_URL,
-                        json={
-                            "model": OLLAMA_MODEL,
-                            "prompt": f"{system_instruction}\n\nDocument Text:\n{raw_text}",
-                            "stream": False,
-                            "format": "json"
-                        }
-                    )
-                    response.raise_for_status()
-                    resp_json = response.json()
-                    clean_text = resp_json.get("response", "").strip()
-                    print(f"DEBUG: Ollama response received. Status: SUCCESS")
-            except Exception as e:
-                print(f"DEBUG: Ollama API Call Error: {e}")
-                raise HTTPException(status_code=500, detail=f"Ollama error: {str(e)}")
-        else:
-            print("DEBUG: Calling Gemini API...")
-            try:
-                # Using models/ prefix for more robust model resolution
-                model = genai.GenerativeModel('models/gemini-1.5-flash')
-                response = model.generate_content(f"System Instruction: {system_instruction}\n\nDocument Text:\n{raw_text}")
-                clean_text = response.text.strip()
-                print(f"DEBUG: Gemini response received. Status: SUCCESS")
-            except Exception as e:
-                print(f"DEBUG: Gemini API Call Error: {e}")
-                raise HTTPException(status_code=500, detail=f"Gemini API error: {str(e)}")
+        print(f"DEBUG: Processing {role} via Gemini...")
+        model = genai.GenerativeModel(GEMINI_MODEL)
+        response = model.generate_content(f"System: {system_instruction}\n\nText:\n{raw_text}")
         
-        # Parse AI response
-        try:
-            print(f"DEBUG: Raw AI response: {clean_text[:200]}...") # Log first 200 chars
-            
-            # Remove markdown code blocks if present
-            if "```json" in clean_text:
-                clean_text = clean_text.split("```json")[1].split("```")[0].strip()
-            elif "```" in clean_text:
-                clean_text = clean_text.split("```")[1].split("```")[0].strip()
-            
-            result = json.loads(clean_text)
-            
-            # Post-process to ensure follow_up_questions is correct and hints are removed from questions
-            extracted_follow_ups = []
-            for key, question in questions.items():
-                clean_question = question.split(" (Return as")[0].strip()
-                if result.get(key) is None or (isinstance(result.get(key), list) and len(result.get(key)) == 0):
-                    result[key] = None # Normalize empty arrays to null for the frontend logic
-                    extracted_follow_ups.append(clean_question)
-            
-            result["follow_up_questions"] = extracted_follow_ups
-            
-            print("DEBUG: Successfully parsed and post-processed result")
-            return result
-        except Exception as e:
-            print(f"DEBUG: AI Response Parsing Error: {e}")
-            print(f"DEBUG: Raw Response was: {clean_text}")
-            raise HTTPException(status_code=500, detail=f"Failed to parse AI response: {str(e)}")
+        clean_text = response.text.strip()
+        if "```json" in clean_text:
+            clean_text = clean_text.split("```json")[1].split("```")[0].strip()
+        elif "```" in clean_text:
+            clean_text = clean_text.split("```")[1].split("```")[0].strip()
+        
+        result = json.loads(clean_text)
+        
+        extracted_follow_ups = []
+        for key, question in questions.items():
+            if result.get(key) is None or (isinstance(result.get(key), list) and len(result.get(key)) == 0):
+                result[key] = None
+                extracted_follow_ups.append(question.split(" (Return as")[0].strip())
+        
+        result["follow_up_questions"] = extracted_follow_ups
+        return result
 
-    except HTTPException as he:
-        # Re-raise HTTPExceptions
-        raise he
     except Exception as e:
-        print(f"DEBUG: Unexpected Error: {e}")
-        raise HTTPException(status_code=500, detail=f"Unexpected server error: {str(e)}")
+        print(f"DEBUG: Gemini Error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
     finally:
         if os.path.exists(temp_path):
             os.remove(temp_path)
 
+@app.post("/api/v1/pitch-analyze")
+async def analyze_pitch(
+    file: UploadFile = File(...)
+):
+    upload_dir = "assets/pitches"
+    os.makedirs(upload_dir, exist_ok=True)
+    file_name = file.filename if file.filename else "pitch.webm"
+    file_path = os.path.join(upload_dir, file_name)
+    audio_path = os.path.join(upload_dir, f"{os.path.splitext(file_name)[0]}.wav")
+    
+    with open(file_path, "wb") as buffer:
+        shutil.copyfileobj(file.file, buffer)
+
+    transcript = ""
+    if speech_client:
+        try:
+            print("DEBUG: Extracting audio...")
+            video = VideoFileClip(file_path)
+            video.audio.write_audiofile(audio_path, fps=16000, nbytes=2, codec='pcm_s16le', ffmpeg_params=["-ac", "1"])
+            video.close()
+            
+            with open(audio_path, "rb") as f:
+                content = f.read()
+            
+            audio = speech.RecognitionAudio(content=content)
+            config = speech.RecognitionConfig(
+                encoding=speech.RecognitionConfig.AudioEncoding.LINEAR16,
+                sample_rate_hertz=16000,
+                language_code="en-US",
+                enable_automatic_punctuation=True,
+                model="latest_long", 
+            )
+            
+            print("DEBUG: Transcribing via GCP...")
+            response = speech_client.recognize(config=config, audio=audio)
+            transcript = " ".join([r.alternatives[0].transcript for r in response.results])
+            print(f"DEBUG: Transcript: {transcript}")
+        except Exception as e:
+            print(f"DEBUG: STT Error: {e}")
+            transcript = "Could not transcribe audio."
+    else:
+        transcript = "GCP STT not configured."
+
+    system_instruction = """
+    Analyze startup pitch. Return JSON:
+    {
+      "summary": "2 sentences",
+      "key_strengths": ["3 items"],
+      "potential_risks": ["2 items"],
+      "ecosystem_fit": 1-10
+    }
+    Output ONLY valid JSON.
+    """
+
+    try:
+        print("DEBUG: Analyzing via Gemini...")
+        model = genai.GenerativeModel(GEMINI_MODEL)
+        response = model.generate_content(f"{system_instruction}\n\nTranscript: {transcript}")
+        
+        clean_resp = response.text.strip()
+        if "```json" in clean_resp:
+            clean_resp = clean_resp.split("```json")[1].split("```")[0].strip()
+        elif "```" in clean_resp:
+            clean_resp = clean_resp.split("```")[1].split("```")[0].strip()
+            
+        return {"transcript": transcript, "analysis": json.loads(clean_resp), "video_url": f"/assets/pitches/{file_name}"}
+    except Exception as e:
+        print(f"DEBUG: analysis Error: {e}")
+        return {"transcript": transcript, "analysis": {"summary": "Error analyzing pitch.", "key_strengths": [], "potential_risks": [], "ecosystem_fit": 0}, "video_url": f"/assets/pitches/{file_name}"}
+
 @app.get("/health")
 async def health():
-    return {"status": "ok", "api_key_configured": GOOGLE_API_KEY is not None}
+    return {"status": "ok", "api_key": GOOGLE_API_KEY is not None}
 
 if __name__ == "__main__":
     import uvicorn
