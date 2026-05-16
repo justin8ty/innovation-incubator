@@ -1,5 +1,7 @@
 import sqlite3
+
 import sqlite_vec
+
 from vector.config import DB_PATH
 
 

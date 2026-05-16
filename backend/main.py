@@ -9,6 +9,18 @@ from dotenv import load_dotenv
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 
+# Vector imports
+import vector.config
+from vector.db import init_vec_table
+from vector.vector_store import (
+    embed_all_campaigns,
+    embed_all_entities,
+    embed_campaign,
+    embed_entity,
+    match_for_entity,
+    search,
+)
+
 load_dotenv()
 
 app = FastAPI(title="MyHack Engine AI Ingestion")
@@ -34,13 +46,36 @@ else:
 
 
 @app.on_event("startup")
-def debug_registered_routes():
+def on_startup():
+    # Debug routes
     routes = sorted(
         f"{','.join(sorted(getattr(route, 'methods', []) or []))} {getattr(route, 'path', '')}"
         for route in app.routes
     )
-    print("DEBUG ingestion main startup: registered routes:", routes)
-    print("DEBUG ingestion main startup: /agent/chat is NOT served by Backend/main.py; run Backend/app/main.py for chatbot routes")
+    print("DEBUG ingestion main startup: registered routes:", routes, flush=True)
+    print(
+        "DEBUG ingestion main startup: /agent/chat is NOT served by Backend/main.py; run Backend/app/main.py for chatbot routes",
+        flush=True,
+    )
+
+    # Vector initialization
+    print("DEBUG vector startup: checking for ./rels.db from cwd:", os.getcwd(), flush=True)
+    print("DEBUG vector startup: ./rels.db exists:", os.path.exists("./rels.db"), flush=True)
+    if not os.path.exists("./rels.db"):
+        print("DEBUG vector startup: rels.db not found; skipping init_vec_table", flush=True)
+        return
+
+    print("DEBUG vector startup: calling init_vec_table", flush=True)
+    init_vec_table()
+    print("DEBUG vector startup: init_vec_table completed", flush=True)
+    from vector.db import get_db_conn
+
+    conn = get_db_conn()
+    count = conn.execute("SELECT COUNT(*) FROM vec_entities").fetchone()[0]
+    conn.close()
+    if count == 0:
+        embed_all_entities()
+        embed_all_campaigns()
 
 
 ROLE_QUESTIONS = {
@@ -181,10 +216,12 @@ async def upload_document(file: UploadFile = File(...), role: str = Form(...)):
             )  # Log first 200 chars
 
             # Remove markdown code blocks if present
-            if "```json" in clean_text:
-                clean_text = clean_text.split("```json")[1].split("```")[0].strip()
-            elif "```" in clean_text:
-                clean_text = clean_text.split("```")[1].split("```")[0].strip()
+            if clean_text.startswith("```json"):
+                clean_text = (
+                    clean_text.removeprefix("```json").removesuffix("```").strip()
+                )
+            elif clean_text.startswith("```"):
+                clean_text = clean_text.removeprefix("```").removesuffix("```").strip()
 
             result = json.loads(clean_text)
 
@@ -227,6 +264,46 @@ async def upload_document(file: UploadFile = File(...), role: str = Form(...)):
 @app.get("/health")
 async def health():
     return {"status": "ok", "api_key_configured": GOOGLE_API_KEY is not None}
+
+
+# -- Vector Search Endpoints --
+
+
+@app.post("/api/v1/vector/embed/entity")
+async def embed_one_entity(entity_id: int):
+    embed_entity(entity_id)
+    return {"status": "ok", "entity_id": entity_id}
+
+
+@app.post("/api/v1/vector/embed/campaign")
+async def embed_one_campaign(campaign_id: int):
+    embed_campaign(campaign_id)
+    return {"status": "ok", "campaign_id": campaign_id}
+
+
+@app.post("/api/v1/vector/embed/all")
+async def embed_all():
+    embed_all_entities()
+    embed_all_campaigns()
+    return {"status": "ok", "message": "All entities and campaigns embedded"}
+
+
+@app.post("/api/v1/vector/match")
+async def match(entity_id: int, campaign_id: int = None, top_k: int = 3):
+    """
+    Universal matching endpoint.
+    - entity_id: who is searching (any role)
+    - campaign_id: (optional) if a company is searching for their campaign
+    - top_k: how many final results per category
+    """
+    result = match_for_entity(entity_id=entity_id, campaign_id=campaign_id, top_k=top_k)
+    return result
+
+
+@app.post("/api/v1/vector/search")
+async def search_endpoint(query: str, entity_id: int = None, top_k: int = 1):
+    result = search(query=query, entity_id=entity_id, top_k=top_k)
+    return result
 
 
 if __name__ == "__main__":

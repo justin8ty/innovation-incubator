@@ -1,4 +1,5 @@
 import os
+
 import vertexai
 from dotenv import load_dotenv
 

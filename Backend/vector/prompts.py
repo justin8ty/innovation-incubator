@@ -35,7 +35,9 @@ Order the array from best fit to worst fit.
 """
 
 
-def search_rerank_prompt(search_query: str, candidates_text: str, requester_context: str = "") -> str:
+def search_rerank_prompt(
+    search_query: str, candidates_text: str, requester_context: str = ""
+) -> str:
     return f"""You are an expert innovation ecosystem matchmaker.
 
 A user is ACTIVELY SEARCHING for:

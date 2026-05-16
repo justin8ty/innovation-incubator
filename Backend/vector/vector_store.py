@@ -1,6 +1,7 @@
 import json
+
 from vector.db import get_db_conn
-from vector.embedder import get_embedding, entity_to_text, campaign_to_text
+from vector.embedder import campaign_to_text, entity_to_text, get_embedding
 
 # -- 5 Roles --
 # STARTUP - seeks mentors, investors, campaigns
@@ -15,17 +16,18 @@ ALL_ROLES = ("STARTUP", "MENTOR", "COMPANY", "INNOVATOR", "INVESTOR")
 # "entities" = target entity roles to search
 # "campaigns" = whether to also search the campaigns table
 MATCH_TARGETS = {
-    "STARTUP":   {"entities": ["MENTOR", "INVESTOR"], "campaigns": True},
-    "MENTOR":    {"entities": ["STARTUP"], "campaigns": True},
-    "COMPANY":   {"entities": ["INNOVATOR", "STARTUP"], "campaigns": False},
+    "STARTUP": {"entities": ["MENTOR", "INVESTOR"], "campaigns": True},
+    "MENTOR": {"entities": ["STARTUP"], "campaigns": True},
+    "COMPANY": {"entities": ["INNOVATOR", "STARTUP"], "campaigns": False},
     "INNOVATOR": {"entities": ["STARTUP"], "campaigns": True},
-    "INVESTOR":  {"entities": ["STARTUP"], "campaigns": True},
+    "INVESTOR": {"entities": ["STARTUP"], "campaigns": True},
 }
 
 ANN_CAP = 20  # max candidates per category to pass to reranker
 
 
 # -- Main Matching Function --
+
 
 def match_for_entity(entity_id: int, campaign_id: int = None, top_k: int = 3):
     """
@@ -91,6 +93,7 @@ def match_for_entity(entity_id: int, campaign_id: int = None, top_k: int = 3):
 
 # -- Search Bar Function --
 
+
 def search(query: str, entity_id: int = None, top_k: int = 1):
     """
     Search bar — user types a query, gets AI suggestions + vector results.
@@ -101,8 +104,8 @@ def search(query: str, entity_id: int = None, top_k: int = 1):
 
     Returns:
       {
-        "ai_suggested": [...], 
-        "results": [...] 
+        "ai_suggested": [...],
+        "results": [...]
       }
     """
     from vector.reranker import rerank
@@ -145,8 +148,7 @@ def search(query: str, entity_id: int = None, top_k: int = 1):
         ai_ids.add(key)
 
     results = [
-        r for r in all_results
-        if (r.get("match_type", "entity"), r["id"]) not in ai_ids
+        r for r in all_results if (r.get("match_type", "entity"), r["id"]) not in ai_ids
     ]
 
     return {
@@ -156,6 +158,7 @@ def search(query: str, entity_id: int = None, top_k: int = 1):
 
 
 # -- Embedding Functions --
+
 
 def embed_entity(entity_id: int):
     conn = get_db_conn()
@@ -177,7 +180,7 @@ def embed_entity(entity_id: int):
     conn.execute("DELETE FROM vec_entities WHERE rowid = ?", [entity_id])
     conn.execute(
         "INSERT INTO vec_entities(rowid, embedding) VALUES (?, ?)",
-        [entity_id, json.dumps(vector)]
+        [entity_id, json.dumps(vector)],
     )
     conn.commit()
     conn.close()
@@ -196,7 +199,7 @@ def embed_campaign(campaign_id: int):
     conn.execute("DELETE FROM vec_campaigns WHERE rowid = ?", [campaign_id])
     conn.execute(
         "INSERT INTO vec_campaigns(rowid, embedding) VALUES (?, ?)",
-        [campaign_id, json.dumps(vector)]
+        [campaign_id, json.dumps(vector)],
     )
     conn.commit()
     conn.close()
@@ -209,7 +212,7 @@ def embed_all_entities():
     role_placeholders = ",".join("?" * len(ALL_ROLES))
     entities = conn.execute(
         f"SELECT id, name, role FROM entities WHERE role IN ({role_placeholders})",
-        list(ALL_ROLES)
+        list(ALL_ROLES),
     ).fetchall()
     entities = [dict(e) for e in entities]
 
@@ -224,7 +227,7 @@ def embed_all_entities():
     chunk_size = 100
     all_vectors = []
     for i in range(0, len(texts), chunk_size):
-        chunk = texts[i:i + chunk_size]
+        chunk = texts[i : i + chunk_size]
         print(f"  Batch {i // chunk_size + 1} ({len(chunk)} entities)...")
         vectors = get_embeddings_batch(chunk)
         all_vectors.extend(vectors)
@@ -233,7 +236,7 @@ def embed_all_entities():
         conn.execute("DELETE FROM vec_entities WHERE rowid = ?", [entity["id"]])
         conn.execute(
             "INSERT INTO vec_entities(rowid, embedding) VALUES (?, ?)",
-            [entity["id"], json.dumps(vector)]
+            [entity["id"], json.dumps(vector)],
         )
 
     conn.commit()
@@ -269,7 +272,7 @@ def embed_all_campaigns():
     chunk_size = 100
     all_vectors = []
     for i in range(0, len(texts), chunk_size):
-        chunk = texts[i:i + chunk_size]
+        chunk = texts[i : i + chunk_size]
         vectors = get_embeddings_batch(chunk)
         all_vectors.extend(vectors)
 
@@ -277,7 +280,7 @@ def embed_all_campaigns():
         conn.execute("DELETE FROM vec_campaigns WHERE rowid = ?", [campaign["id"]])
         conn.execute(
             "INSERT INTO vec_campaigns(rowid, embedding) VALUES (?, ?)",
-            [campaign["id"], json.dumps(vector)]
+            [campaign["id"], json.dumps(vector)],
         )
 
     conn.commit()
@@ -286,6 +289,7 @@ def embed_all_campaigns():
 
 
 # -- Internal Search Functions --
+
 
 def _search_entities(
     query_text: str,
@@ -297,13 +301,16 @@ def _search_entities(
     conn = get_db_conn()
     query_vector = get_embedding(query_text)
 
-    raw = conn.execute("""
+    raw = conn.execute(
+        """
         SELECT rowid, distance
         FROM vec_entities
         WHERE embedding MATCH ?
           AND k = ?
         ORDER BY distance
-    """, [json.dumps(query_vector), candidate_pool]).fetchall()
+    """,
+        [json.dumps(query_vector), candidate_pool],
+    ).fetchall()
 
     if not raw:
         conn.close()
@@ -325,11 +332,14 @@ def _search_entities(
     if filters:
         where_clause = "AND " + " AND ".join(filters)
 
-    results = conn.execute(f"""
+    results = conn.execute(
+        f"""
         SELECT * FROM entities
         WHERE id IN ({placeholders})
         {where_clause}
-    """, params).fetchall()
+    """,
+        params,
+    ).fetchall()
     conn.close()
 
     result_dicts = []
@@ -368,13 +378,16 @@ def _search_campaigns(
 
     query_vector = get_embedding(query_text)
 
-    raw = conn.execute("""
+    raw = conn.execute(
+        """
         SELECT rowid, distance
         FROM vec_campaigns
         WHERE embedding MATCH ?
           AND k = ?
         ORDER BY distance
-    """, [json.dumps(query_vector), candidate_pool]).fetchall()
+    """,
+        [json.dumps(query_vector), candidate_pool],
+    ).fetchall()
 
     if not raw:
         conn.close()
@@ -385,11 +398,14 @@ def _search_campaigns(
     placeholders = ",".join("?" * len(ids))
 
     # TODO: Add hard filters (industry, stage, country) once campaign table is finalized
-    results = conn.execute(f"""
+    results = conn.execute(
+        f"""
         SELECT * FROM campaigns
         WHERE id IN ({placeholders})
           AND status = 'ACTIVE'
-    """, list(ids)).fetchall()
+    """,
+        list(ids),
+    ).fetchall()
     conn.close()
 
     result_dicts = []

@@ -1,9 +1,12 @@
 import json
+
 from vertexai.generative_models import GenerativeModel
-from vector.prompts import rerank_prompt, search_rerank_prompt
+
 from vector.db import get_db_conn
+from vector.prompts import rerank_prompt, search_rerank_prompt
 
 _model = None
+
 
 def get_model():
     global _model
@@ -14,14 +17,17 @@ def get_model():
 
 def _get_direct_history(conn, requester_id: int, candidate_id: int) -> str:
     try:
-        rels = conn.execute("""
+        rels = conn.execute(
+            """
             SELECT r.id, r.status, r.strength_score, r.ai_reasoning_summary,
                    rt.name as rel_type
             FROM relationships r
             LEFT JOIN relationship_types rt ON r.relationship_type_id = rt.id
             WHERE (r.source_entity_id = ? AND r.target_entity_id = ?)
                OR (r.source_entity_id = ? AND r.target_entity_id = ?)
-        """, [requester_id, candidate_id, candidate_id, requester_id]).fetchall()
+        """,
+            [requester_id, candidate_id, candidate_id, requester_id],
+        ).fetchall()
 
         if not rels:
             return "No direct history with requester."
@@ -34,12 +40,15 @@ def _get_direct_history(conn, requester_id: int, candidate_id: int) -> str:
                 line += f" | strength: {r['strength_score']:.0%}"
 
             # Get feedback for this specific relationship
-            feedback = conn.execute("""
+            feedback = conn.execute(
+                """
                 SELECT f.rating, f.text_feedback, e.name as from_name
                 FROM feedback f
                 LEFT JOIN entities e ON f.from_entity_id = e.id
                 WHERE f.relationship_id = ?
-            """, [r["id"]]).fetchall()
+            """,
+                [r["id"]],
+            ).fetchall()
 
             for fb in feedback:
                 line += f'\n    Review ({fb["rating"]}/5 by {fb["from_name"]}): "{fb["text_feedback"]}"'
@@ -53,7 +62,8 @@ def _get_direct_history(conn, requester_id: int, candidate_id: int) -> str:
 
 def _get_external_track_record(conn, requester_id: int, candidate_id: int) -> str:
     try:
-        rels = conn.execute("""
+        rels = conn.execute(
+            """
             SELECT r.id, r.status, r.strength_score,
                    rt.name as rel_type,
                    e_other.name as other_entity_name
@@ -70,10 +80,17 @@ def _get_external_track_record(conn, requester_id: int, candidate_id: int) -> st
                 (r.source_entity_id = ? AND r.target_entity_id = ?)
                 OR (r.source_entity_id = ? AND r.target_entity_id = ?)
               )
-        """, [candidate_id,
-              candidate_id, candidate_id,
-              requester_id, candidate_id,
-              candidate_id, requester_id]).fetchall()
+        """,
+            [
+                candidate_id,
+                candidate_id,
+                candidate_id,
+                requester_id,
+                candidate_id,
+                candidate_id,
+                requester_id,
+            ],
+        ).fetchall()
 
         if not rels:
             return "No external track record."
@@ -85,12 +102,15 @@ def _get_external_track_record(conn, requester_id: int, candidate_id: int) -> st
             line = f"  - {rel_type} with {other} ({r['status']})"
 
             # Get feedback for this relationship
-            feedback = conn.execute("""
+            feedback = conn.execute(
+                """
                 SELECT f.rating, f.text_feedback, e.name as from_name
                 FROM feedback f
                 LEFT JOIN entities e ON f.from_entity_id = e.id
                 WHERE f.relationship_id = ?
-            """, [r["id"]]).fetchall()
+            """,
+                [r["id"]],
+            ).fetchall()
 
             for fb in feedback:
                 line += f'\n    Review ({fb["rating"]}/5 by {fb["from_name"]}): "{fb["text_feedback"]}"'
@@ -98,12 +118,15 @@ def _get_external_track_record(conn, requester_id: int, candidate_id: int) -> st
             parts.append(line)
 
         # Add aggregate stats
-        avg = conn.execute("""
+        avg = conn.execute(
+            """
             SELECT AVG(f.rating) as avg, COUNT(f.id) as cnt
             FROM feedback f
             JOIN relationships r ON f.relationship_id = r.id
             WHERE r.source_entity_id = ? OR r.target_entity_id = ?
-        """, [candidate_id, candidate_id]).fetchone()
+        """,
+            [candidate_id, candidate_id],
+        ).fetchone()
 
         summary = ""
         if avg and avg["avg"]:
@@ -114,9 +137,13 @@ def _get_external_track_record(conn, requester_id: int, candidate_id: int) -> st
         return "No external track record."
 
 
-def _build_candidate_text(candidate: dict, index: int,
-                          direct_history: str, external_record: str,
-                          expertise_tags: str) -> str:
+def _build_candidate_text(
+    candidate: dict,
+    index: int,
+    direct_history: str,
+    external_record: str,
+    expertise_tags: str,
+) -> str:
     return (
         f"--- Candidate {index} ---\n"
         f"[{candidate.get('role', '')}] {candidate.get('name', '')}\n"
@@ -129,7 +156,14 @@ def _build_candidate_text(candidate: dict, index: int,
         f"EXTERNAL TRACK RECORD (with other entities):\n{external_record}\n"
     )
 
-def rerank(query: str, candidates: list[dict], requester_id: int = None, top_k: int = 5, mode: str = "match"):
+
+def rerank(
+    query: str,
+    candidates: list[dict],
+    requester_id: int = None,
+    top_k: int = 5,
+    mode: str = "match",
+):
     if not candidates:
         return []
 
@@ -140,12 +174,15 @@ def rerank(query: str, candidates: list[dict], requester_id: int = None, top_k: 
     for c in candidates:
         if requester_id:
             try:
-                active = conn.execute("""
+                active = conn.execute(
+                    """
                     SELECT COUNT(*) as cnt FROM relationships
                     WHERE status = 'ACTIVE'
                       AND ((source_entity_id = ? AND target_entity_id = ?)
                         OR (source_entity_id = ? AND target_entity_id = ?))
-                """, [requester_id, c["id"], c["id"], requester_id]).fetchone()
+                """,
+                    [requester_id, c["id"], c["id"], requester_id],
+                ).fetchone()
                 if active and active["cnt"] > 0:
                     print(f"  Excluded {c.get('name', c['id'])} (ACTIVE relationship)")
                     continue
@@ -160,15 +197,24 @@ def rerank(query: str, candidates: list[dict], requester_id: int = None, top_k: 
     # Build enriched candidate text for the prompt
     candidate_lines = []
     for i, c in enumerate(filtered_candidates):
-        tags = conn.execute("""
+        tags = conn.execute(
+            """
             SELECT et.name FROM expertise_tags et
             JOIN entity_expertise ee ON et.id = ee.tag_id
             WHERE ee.entity_id = ?
-        """, [c["id"]]).fetchall()
+        """,
+            [c["id"]],
+        ).fetchall()
         expertise_tags = ", ".join(t["name"] for t in tags) or "N/A"
 
-        direct = _get_direct_history(conn, requester_id, c["id"]) if requester_id else "N/A"
-        external = _get_external_track_record(conn, requester_id, c["id"]) if requester_id else "N/A"
+        direct = (
+            _get_direct_history(conn, requester_id, c["id"]) if requester_id else "N/A"
+        )
+        external = (
+            _get_external_track_record(conn, requester_id, c["id"])
+            if requester_id
+            else "N/A"
+        )
 
         line = _build_candidate_text(c, i + 1, direct, external, expertise_tags)
         candidate_lines.append(line)
@@ -180,7 +226,10 @@ def rerank(query: str, candidates: list[dict], requester_id: int = None, top_k: 
     startup_context = ""
     if requester_id:
         conn2 = get_db_conn()
-        requester = conn2.execute("SELECT name, role, industry, stage, description FROM entities WHERE id = ?", [requester_id]).fetchone()
+        requester = conn2.execute(
+            "SELECT name, role, industry, stage, description FROM entities WHERE id = ?",
+            [requester_id],
+        ).fetchone()
         if requester:
             startup_context = f"{requester['name']} ({requester['role']}, {requester['industry']}, {requester['stage']}) — {requester['description']}"
         conn2.close()
