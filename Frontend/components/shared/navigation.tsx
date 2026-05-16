@@ -12,6 +12,7 @@ import {
   X,
   BookOpen,
   Trophy,
+  Search,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
@@ -65,6 +66,18 @@ export function Navigation() {
         </div>
 
         <div className="hidden md:flex items-center gap-3">
+          <Link
+            href="/search"
+            aria-label="Search"
+            className={cn(
+              "flex h-8 w-8 items-center justify-center rounded-lg border border-border/50 transition-all duration-200",
+              pathname === "/search"
+                ? "bg-primary/10 text-primary"
+                : "text-muted-foreground hover:bg-secondary hover:text-foreground"
+            )}
+          >
+            <Search className="w-4 h-4" />
+          </Link>
           <Button variant="outline" size="sm" className="text-muted-foreground border-border/50 h-8 text-xs">
             Sign In
           </Button>
@@ -103,6 +116,19 @@ export function Navigation() {
               )
             })}
             <div className="pt-4 border-t border-border/50 space-y-2">
+              <Link
+                href="/search"
+                onClick={() => setMobileMenuOpen(false)}
+                className={cn(
+                  "flex items-center gap-3 px-4 py-3 rounded-lg text-sm transition-all",
+                  pathname === "/search"
+                    ? "bg-primary/10 text-primary"
+                    : "text-muted-foreground hover:text-foreground hover:bg-secondary"
+                )}
+              >
+                <Search className="w-5 h-5" />
+                Search
+              </Link>
               <Button variant="outline" size="sm" className="w-full justify-start text-muted-foreground">
                 Sign In
               </Button>
