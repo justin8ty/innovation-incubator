@@ -229,6 +229,11 @@ async def match(entity_id: int, campaign_id: int = None, top_k: int = 3):
 
 @app.on_event("startup")
 def on_startup():
+    # TODO: remove this check
+    if not os.path.exists("./rels.db"):
+        print("rels.db not found")
+        return
+
     init_vec_table()
     from vector.db import get_db_conn
     conn = get_db_conn()
