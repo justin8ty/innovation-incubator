@@ -1,3 +1,24 @@
-app/__pycache__/
-app/services/__pycache__/
-Backend/__pycache__/
+# Python bytecode
+**/__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Databases 
+backend/rels.db
+*.db
+*.sqlite3
+
+# Environments
+venv/
+.venv/
+env/
+.env
+
+# Migration Tool Caches
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# System Files
+.DS_Store

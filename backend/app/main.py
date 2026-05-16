@@ -213,7 +213,8 @@ def relationship_graph(db: Session = Depends(get_db)):
     return {
         "nodes": [
             {
-                "id": str(entity.id),
+                # ADD PREFIX 'node-'
+                "id": f"node-{entity.id}", 
                 "label": entity.name or f"{entity.role} #{entity.id}",
                 "role": entity.role,
                 "industry": entity.industry,
@@ -224,9 +225,11 @@ def relationship_graph(db: Session = Depends(get_db)):
         ],
         "edges": [
             {
-                "id": str(relationship.id),
-                "source": str(relationship.source_entity_id),
-                "target": str(relationship.target_entity_id),
+                # ADD PREFIX 'edge-'
+                "id": f"edge-{relationship.id}", 
+                # SOURCE AND TARGET MUST MATCH THE NEW NODE IDs
+                "source": f"node-{relationship.source_entity_id}", 
+                "target": f"node-{relationship.target_entity_id}",
                 "label": relationship.relationship_type.code if relationship.relationship_type else "RELATIONSHIP",
                 "status": relationship.status,
                 "strength_score": relationship.strength_score or 0.0,
@@ -235,7 +238,7 @@ def relationship_graph(db: Session = Depends(get_db)):
             for relationship in relationships
         ],
     }
-
+    
 
 @app.post("/needs/{need_id}/match")
 def match_need(need_id: int, db: Session = Depends(get_db)):
@@ -344,6 +347,15 @@ def propose_relationship(payload: RelationshipPropose, db: Session = Depends(get
     if rel_type is None:
         raise HTTPException(status_code=404, detail="relationship_type_code not found")
 
+    existing = db.query(Relationship).filter(
+        Relationship.source_entity_id == payload.source_entity_id,
+        Relationship.target_entity_id == payload.target_entity_id,
+        Relationship.status.in_(["PROPOSED", "ACTIVE", "PENDING"])
+    ).first()
+    
+    if existing:
+        return serialize_relationship(existing) # Return existing instead of creating junk
+    
     score = score_relationship(
         source,
         target,
@@ -415,21 +427,31 @@ def add_feedback(relationship_id: int, payload: FeedbackCreate, db: Session = De
 
     feedback = Feedback(relationship=relationship, **payload.model_dump())
     db.add(feedback)
+    
     db.commit()
     db.refresh(relationship)
     return serialize_relationship(relationship)
 
 
 @app.post("/milestones/{milestone_id}/complete")
-def complete_milestone(milestone_id: int, db: Session = Depends(get_db)):
+def complete_milestone(relationship_id: int, milestone_id: int, db: Session = Depends(get_db)):
     milestone = db.get(Milestone, milestone_id)
-    if milestone is None:
-        raise HTTPException(status_code=404, detail="milestone not found")
+    relationship = db.get(Relationship, relationship_id)
+    
+    if milestone is None or relationship is None:
+        raise HTTPException(status_code=404, detail="Resource not found")
+        
     milestone.status = "DONE"
     milestone.completed_at = datetime.now(timezone.utc)
+    
+    # --- CONCEPT 3: THE PULSE ---
+    relationship.status = "ACTIVE" # Reset from DECAYING
+    relationship.strength_score = 1.0 # Reset Health to 100%
+    # If your model has it: relationship.last_interaction_at = datetime.now(timezone.utc)
+    
     db.commit()
-    db.refresh(milestone.relationship)
-    return serialize_relationship(milestone.relationship)
+    db.refresh(relationship)
+    return serialize_relationship(relationship)
 
 
 @app.post("/relationships/{relationship_id}/milestones")

@@ -99,7 +99,9 @@ class Relationship(Base):
     past_success_score = Column(Float, default=0.0)
     mentor_success_score = Column(Float, default=0.0)
     ai_reasoning_summary = Column(Text)
+    health_score = Column(Float, default=100.0) # Starts at 100%
 
+    last_interaction_at = Column(DateTime(timezone=True), server_default=func.now())
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
     activated_at = Column(DateTime(timezone=True))
@@ -146,3 +148,26 @@ class Feedback(Base):
 
     relationship = orm_relationship("Relationship", back_populates="feedback")
     from_entity = orm_relationship("Entity", back_populates="feedback_given")
+
+class Protocol(Base):
+    __tablename__ = "protocols"
+    id = Column(Integer, primary_key=True)
+    name = Column(String, nullable=False) # e.g., "Cradle Pre-Seed Protocol"
+    description = Column(Text)
+    
+    rules = orm_relationship("ProtocolRule", back_populates="protocol", cascade="all, delete-orphan")
+
+class ProtocolRule(Base):
+    __tablename__ = "protocol_rules"
+    id = Column(Integer, primary_key=True)
+    protocol_id = Column(Integer, ForeignKey("protocols.id"))
+    
+    # The Trigger
+    trigger_type = Column(String) # e.g., "MILESTONE_REACHED"
+    trigger_value = Column(String) # e.g., "TRL 4"
+    
+    # The Action (Target Criteria)
+    target_role = Column(String) # e.g., "SERVICE_PROVIDER"
+    target_tag = Column(String) # e.g., "legal"
+    
+    protocol = orm_relationship("Protocol", back_populates="rules")
