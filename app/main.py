@@ -1,6 +1,7 @@
 from datetime import datetime, timezone
 
 from fastapi import Depends, FastAPI, HTTPException
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
@@ -9,6 +10,7 @@ from app.db.models import Entity, Feedback, Milestone, Relationship, Relationshi
 from app.services.scoring import score_relationship
 
 app = FastAPI(title="Innovation Incubator Relationship Graph")
+app.mount("/static", StaticFiles(directory="app/static"), name="static")
 
 
 def get_db():
@@ -149,6 +151,38 @@ def list_relationships(db: Session = Depends(get_db)):
         serialize_relationship(relationship)
         for relationship in db.query(Relationship).order_by(Relationship.id).all()
     ]
+
+
+@app.get("/graph")
+def relationship_graph(db: Session = Depends(get_db)):
+    entities = db.query(Entity).order_by(Entity.id).all()
+    relationships = db.query(Relationship).order_by(Relationship.id).all()
+
+    return {
+        "nodes": [
+            {
+                "id": str(entity.id),
+                "label": entity.name or f"{entity.role} #{entity.id}",
+                "role": entity.role,
+                "industry": entity.industry,
+                "stage": entity.stage,
+                "verified_status": entity.verified_status,
+            }
+            for entity in entities
+        ],
+        "edges": [
+            {
+                "id": str(relationship.id),
+                "source": str(relationship.source_entity_id),
+                "target": str(relationship.target_entity_id),
+                "label": relationship.relationship_type.code if relationship.relationship_type else "RELATIONSHIP",
+                "status": relationship.status,
+                "strength_score": relationship.strength_score or 0.0,
+                "reasoning": relationship.ai_reasoning_summary,
+            }
+            for relationship in relationships
+        ],
+    }
 
 
 @app.post("/relationships/propose")
