@@ -735,7 +735,7 @@ async def upload_document(file: UploadFile = File(...), role: str = Form(...)):
         Output ONLY valid JSON.
         """
 
-        model_name = os.getenv("INGEST_MODEL", "models/gemini-2.5-flash")
+        model_name = os.getenv("INGEST_MODEL", "gemini-2.5-flash")
         model = genai.GenerativeModel(model_name)
         response = model.generate_content(
             f"System Instruction: {system_instruction}\n\nDocument Text:\n{raw_text}"
@@ -786,7 +786,7 @@ async def pitch_analyze(file: UploadFile = File(...)):
 
     if GOOGLE_API_KEY:
         try:
-            model_name = os.getenv("AGENT_MODEL", "models/gemini-2.5-flash")
+            model_name = os.getenv("AGENT_MODEL", "gemini-2.5-flash")
             model = genai.GenerativeModel(model_name)
             prompt = (
                 "You are an expert VC pitch analyzer. Output valid JSON only with keys: "

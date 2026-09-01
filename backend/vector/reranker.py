@@ -1,4 +1,5 @@
 import json
+import os
 
 from vertexai.generative_models import GenerativeModel
 
@@ -11,9 +12,9 @@ _model = None
 def get_model():
     global _model
     if _model is None:
-        _model = GenerativeModel("gemini-2.5-flash-lite")
+        model_name = os.getenv("RANK_MODEL", "gemini-2.5-flash-lite")
+        _model = GenerativeModel(model_name)
     return _model
-
 
 def _get_direct_history(conn, requester_id: int, candidate_id: int) -> str:
     try:
