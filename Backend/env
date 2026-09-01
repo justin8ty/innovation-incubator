@@ -1,4 +1,0 @@
-GCP_PROJECT_ID=fast-blueprint-496506-b2
-GCP_LOCATION=us-central1
-GOOGLE_APPLICATION_CREDENTIALS=./key.json
-RANK_MODEL=gemini-2.5-flash-lite

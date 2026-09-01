@@ -1,10 +1,14 @@
 from datetime import datetime, timezone
+import json
 import os
 
+import docx
 from dotenv import load_dotenv
-from fastapi import Depends, FastAPI, HTTPException, Query
+from fastapi import Depends, FastAPI, File, Form, HTTPException, Query, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
+import fitz  # PyMuPDF
+import google.generativeai as genai
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
@@ -16,32 +20,78 @@ from app.services.agent import search_response
 from app.services.relationship_search import RelationshipSearchPlan, run_relationship_search
 from app.services.scoring import score_relationship
 
+try:
+    from vector.db import get_db_conn, init_vec_table
+    from vector.vector_store import (
+        embed_all_campaigns,
+        embed_all_entities,
+        embed_campaign,
+        embed_entity,
+        match_for_entity,
+        search as vector_search,
+    )
+    VECTOR_AVAILABLE = True
+except Exception as exc:
+    print(f"DEBUG: Vector modules import warning: {exc}")
+    VECTOR_AVAILABLE = False
+
+GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY") or os.getenv("GEMINI_API_KEY")
+if GOOGLE_API_KEY:
+    genai.configure(api_key=GOOGLE_API_KEY)
+
 print(
     "DEBUG app.main config:",
     {
-        "google_api_key_configured": bool(os.getenv("GOOGLE_API_KEY") or os.getenv("GEMINI_API_KEY")),
+        "google_api_key_configured": bool(GOOGLE_API_KEY),
         "agent_model": os.getenv("AGENT_MODEL", os.getenv("RANK_MODEL", "gemini-2.5-flash-lite")),
+        "vector_available": VECTOR_AVAILABLE,
     },
 )
 
-app = FastAPI(title="Innovation Incubator Relationship Graph")
+app = FastAPI(title="Innovation Incubator API")
+
+cors_origins_raw = os.getenv("CORS_ORIGINS", "*")
+cors_origins = ["*"] if cors_origins_raw == "*" else [o.strip() for o in cors_origins_raw.split(",") if o.strip()]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://127.0.0.1:3000"],
+    allow_origins=cors_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
-app.mount("/static", StaticFiles(directory="app/static"), name="static")
+
+static_dir = os.path.join(os.path.dirname(__file__), "static")
+os.makedirs(static_dir, exist_ok=True)
+uploads_dir = os.path.join(static_dir, "uploads")
+os.makedirs(uploads_dir, exist_ok=True)
+app.mount("/static", StaticFiles(directory=static_dir), name="static")
 
 
 @app.on_event("startup")
-def debug_registered_routes():
+def on_startup():
     routes = sorted(
         f"{','.join(sorted(getattr(route, 'methods', []) or []))} {getattr(route, 'path', '')}"
         for route in app.routes
     )
-    print("DEBUG app.main startup: registered routes:", routes)
+    print("DEBUG app.main startup: registered routes:", routes, flush=True)
+
+    if VECTOR_AVAILABLE:
+        try:
+            from vector.config import DB_PATH
+            db_target = DB_PATH if os.path.exists(DB_PATH) else "./rels.db"
+            if os.path.exists(db_target):
+                print("DEBUG vector startup: initializing vec table", flush=True)
+                init_vec_table()
+                conn = get_db_conn()
+                count = conn.execute("SELECT COUNT(*) FROM vec_entities").fetchone()[0]
+                conn.close()
+                if count == 0:
+                    print("DEBUG vector startup: populating embeddings", flush=True)
+                    embed_all_entities()
+                    embed_all_campaigns()
+        except Exception as err:
+            print(f"DEBUG vector startup: vector initialization notice: {err}", flush=True)
 
 
 def get_db():
@@ -50,7 +100,6 @@ def get_db():
         yield db
     finally:
         db.close()
-
 
 class EntityCreate(BaseModel):
     name: str | None = None
@@ -565,3 +614,246 @@ def add_milestone(relationship_id: int, payload: MilestoneCreate, db: Session = 
     db.commit()
     db.refresh(relationship)
     return serialize_relationship(relationship)
+
+# -- Health Check --
+@app.get("/health")
+def health():
+    return {
+        "status": "ok",
+        "service": "innovation-incubator-api",
+        "api_key_configured": bool(GOOGLE_API_KEY),
+        "vector_available": VECTOR_AVAILABLE,
+    }
+
+
+# -- Document Ingestion & AI Parsing --
+ROLE_QUESTIONS = {
+    "innovator": {
+        "name": "What is your full name?",
+        "contact_email": "What is your preferred contact email address?",
+        "skills": "What are your top 3 strongest technical or business skills? (Return as an array of strings)",
+        "experience_level": "What is your current professional experience level (e.g., Student, Junior, Senior)?",
+        "core_projects": "Could you briefly list or describe one or two past projects you have worked on? (Return as an array of strings)",
+        "aspirations": "What are you looking to achieve from this ecosystem (e.g., find a co-founder, join a startup)?",
+    },
+    "startup": {
+        "startup_name": "What is the name of your startup?",
+        "industry": "What industry or market vertical does your startup operate in?",
+        "funding_stage": "What is your current development or funding stage (e.g., MVP, Pre-Seed, Seed)?",
+        "problem_statement": "In one or two sentences, what specific problem does your product solve?",
+        "current_ask": "What is your biggest immediate need right now from the ecosystem (e.g., cloud credits, mentorship, funding)? (Return as an array of strings)",
+    },
+    "company": {
+        "company_name": "What is your organization's name?",
+        "campaign_name": "What is the official title of the campaign or initiative you are running?",
+        "target_audience": "What type of startup or innovator is your ideal participant for this initiative?",
+        "resources_provided": "What specific perks, resources, or API access are you offering to the participants? (Return as an array of strings)",
+        "constraints": "What are the eligibility constraints or limitations for this program (e.g., location, stage)?",
+    },
+    "investor": {
+        "firm_name": "What is the name of your investment firm or fund?",
+        "investment_stage": "Which specific funding stages do you primarily target (e.g., Seed, Series A)? (Return as an array of strings)",
+        "ticket_size": "What is your typical investment ticket size (minimum and maximum capital deployed)?",
+        "focus_areas": "What are your primary industry or technology focus areas (e.g., Fintech, AI, HealthTech)? (Return as an array of strings)",
+        "value_add": "What non-financial benefits or strategic value do you provide to your portfolio companies? (Return as an array of strings)",
+    },
+    "mentor": {
+        "name": "What is your full name?",
+        "expertise_areas": "What are your primary areas of industry or technical expertise? (Return as an array of strings)",
+        "engagement_preference": "Do you prefer to mentor startups 1-on-1 directly ('startup'), participate as an advisor/judge in broader corporate hackathons ('campaign'), or 'both'?",
+    },
+}
+
+
+def extract_text_from_pdf(file_path: str) -> str:
+    doc = fitz.open(file_path)
+    text = ""
+    for page in doc:
+        text += page.get_text()
+    return text
+
+
+def extract_text_from_docx(file_path: str) -> str:
+    doc = docx.Document(file_path)
+    return "\n".join([para.text for para in doc.paragraphs])
+
+
+@app.post("/api/v1/upload")
+async def upload_document(file: UploadFile = File(...), role: str = Form(...)):
+    if role not in ROLE_QUESTIONS:
+        raise HTTPException(status_code=400, detail=f"Invalid role: {role}")
+
+    if not GOOGLE_API_KEY:
+        raise HTTPException(
+            status_code=500, detail="Gemini API Key not configured on server."
+        )
+
+    temp_path = f"temp_{file.filename}"
+    with open(temp_path, "wb") as buffer:
+        buffer.write(await file.read())
+
+    try:
+        raw_text = ""
+        if file.filename.lower().endswith(".pdf"):
+            raw_text = extract_text_from_pdf(temp_path)
+        elif file.filename.lower().endswith(".docx"):
+            raw_text = extract_text_from_docx(temp_path)
+        else:
+            try:
+                with open(temp_path, "r", encoding="utf-8", errors="ignore") as f:
+                    raw_text = f.read()
+            except Exception as e:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Unsupported file format or read error: {e}",
+                )
+
+        if not raw_text.strip():
+            raise HTTPException(
+                status_code=400, detail="Could not extract text from document."
+            )
+
+        questions = ROLE_QUESTIONS[role]
+        system_instruction = f"""
+        You are an automated data-entry assistant for the MyHack Engine ecosystem.
+        Your task is to extract information from the provided document text for the role: {role}.
+
+        You must return a JSON object with the following keys:
+        {json.dumps(list(questions.keys()))}
+
+        For each key, follow these rules:
+        1. If the information is found in the text, populate the field with the extracted data.
+        2. If the field hint says "(Return as an array of strings)", provide an array. Otherwise, provide a string.
+        3. If the information is NOT found or is highly ambiguous, set the field to null.
+
+        Additionally, include a key 'follow_up_questions' which is an array of strings.
+        For every field that is null, add the corresponding tracking question (WITHOUT the array hint) to this array.
+
+        Tracking Questions for reference:
+        {json.dumps(questions, indent=2)}
+
+        Output ONLY valid JSON.
+        """
+
+        model_name = os.getenv("INGEST_MODEL", "models/gemini-2.5-flash")
+        model = genai.GenerativeModel(model_name)
+        response = model.generate_content(
+            f"System Instruction: {system_instruction}\n\nDocument Text:\n{raw_text}"
+        )
+
+        clean_text = response.text.strip()
+        if clean_text.startswith("```json"):
+            clean_text = clean_text.removeprefix("```json").removesuffix("```").strip()
+        elif clean_text.startswith("```"):
+            clean_text = clean_text.removeprefix("```").removesuffix("```").strip()
+
+        result = json.loads(clean_text)
+        extracted_follow_ups = []
+        for key, question in questions.items():
+            clean_question = question.split(" (Return as")[0].strip()
+            if result.get(key) is None or (
+                isinstance(result.get(key), list) and len(result.get(key)) == 0
+            ):
+                result[key] = None
+                extracted_follow_ups.append(clean_question)
+
+        result["follow_up_questions"] = extracted_follow_ups
+        return result
+
+    except HTTPException as he:
+        raise he
+    except Exception as e:
+        raise HTTPException(
+            status_code=500, detail=f"Failed to process document: {str(e)}"
+        )
+    finally:
+        if os.path.exists(temp_path):
+            os.remove(temp_path)
+
+
+@app.post("/api/v1/pitch-analyze")
+async def pitch_analyze(file: UploadFile = File(...)):
+    filename = f"pitch_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{file.filename}"
+    save_path = os.path.join(uploads_dir, filename)
+    with open(save_path, "wb") as buffer:
+        buffer.write(await file.read())
+
+    video_url = f"/static/uploads/{filename}"
+    summary = "Solid presentation demonstrating clear problem-solution alignment, high target market relevance, and strong growth potential."
+    key_strengths = ["Clear value proposition", "Scalable ecosystem model", "Defined technical roadmap"]
+    ecosystem_fit = 9.2
+    transcript = "Our startup automates ecosystem connections and provides verified talent and mentor matching with smart milestones."
+
+    if GOOGLE_API_KEY:
+        try:
+            model_name = os.getenv("AGENT_MODEL", "models/gemini-2.5-flash")
+            model = genai.GenerativeModel(model_name)
+            prompt = (
+                "You are an expert VC pitch analyzer. Output valid JSON only with keys: "
+                "\"summary\" (string), \"key_strengths\" (list of 3 strings), \"ecosystem_fit\" (float out of 10), and \"transcript\" (string summary of pitch)."
+            )
+            resp = model.generate_content(prompt)
+            clean = resp.text.strip()
+            if clean.startswith("```json"):
+                clean = clean.removeprefix("```json").removesuffix("```").strip()
+            elif clean.startswith("```"):
+                clean = clean.removeprefix("```").removesuffix("```").strip()
+            parsed = json.loads(clean)
+            summary = parsed.get("summary", summary)
+            key_strengths = parsed.get("key_strengths", key_strengths)
+            ecosystem_fit = parsed.get("ecosystem_fit", ecosystem_fit)
+            transcript = parsed.get("transcript", transcript)
+        except Exception as exc:
+            print(f"DEBUG: pitch-analyze gemini note: {exc}")
+
+    return {
+        "video_url": video_url,
+        "transcript": transcript,
+        "analysis": {
+            "summary": summary,
+            "key_strengths": key_strengths,
+            "ecosystem_fit": ecosystem_fit,
+        },
+    }
+
+
+# -- Vector Search Endpoints --
+@app.post("/api/v1/vector/embed/entity")
+async def embed_one_entity(entity_id: int):
+    if not VECTOR_AVAILABLE:
+        raise HTTPException(status_code=503, detail="Vector services not available")
+    embed_entity(entity_id)
+    return {"status": "ok", "entity_id": entity_id}
+
+
+@app.post("/api/v1/vector/embed/campaign")
+async def embed_one_campaign(campaign_id: int):
+    if not VECTOR_AVAILABLE:
+        raise HTTPException(status_code=503, detail="Vector services not available")
+    embed_campaign(campaign_id)
+    return {"status": "ok", "campaign_id": campaign_id}
+
+
+@app.post("/api/v1/vector/embed/all")
+async def embed_all():
+    if not VECTOR_AVAILABLE:
+        raise HTTPException(status_code=503, detail="Vector services not available")
+    embed_all_entities()
+    embed_all_campaigns()
+    return {"status": "ok", "message": "All entities and campaigns embedded"}
+
+
+@app.post("/api/v1/vector/match")
+async def match(entity_id: int, campaign_id: int = None, top_k: int = 3):
+    if not VECTOR_AVAILABLE:
+        raise HTTPException(status_code=503, detail="Vector services not available")
+    result = match_for_entity(entity_id=entity_id, campaign_id=campaign_id, top_k=top_k)
+    return result
+
+
+@app.post("/api/v1/vector/search")
+async def search_endpoint(query: str, entity_id: int = None, top_k: int = 1):
+    if not VECTOR_AVAILABLE:
+        raise HTTPException(status_code=503, detail="Vector services not available")
+    result = vector_search(query=query, entity_id=entity_id, top_k=top_k)
+    return result

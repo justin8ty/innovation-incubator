@@ -8,6 +8,7 @@ import { UploadZone } from "@/components/shared/upload-zone"
 import { FormField } from "@/components/shared/form-field"
 import { MatchCard } from "@/components/shared/match-card"
 import { cn } from "@/lib/utils"
+import { API_BASE_URL } from "@/lib/api"
 
 interface FormData {
   startup_name: string
@@ -141,7 +142,7 @@ export default function StartupPage() {
     formDataObj.append("file", blob, "pitch.webm")
 
     try {
-      const response = await fetch("http://127.0.0.1:8000/api/v1/pitch-analyze", {
+      const response = await fetch(`${API_BASE_URL}/api/v1/pitch-analyze`, {
         method: "POST",
         body: formDataObj,
       })
@@ -166,7 +167,7 @@ export default function StartupPage() {
     formDataObj.append("role", "startup")
 
     try {
-      const response = await fetch("http://127.0.0.1:8000/api/v1/upload", {
+      const response = await fetch(`${API_BASE_URL}/api/v1/upload`, {
         method: "POST",
         body: formDataObj,
       })
@@ -256,7 +257,7 @@ export default function StartupPage() {
                   {/* Recorded Video Playback */}
                   {pitchReport && !isRecording && !isAnalyzingPitch && (
                     <video 
-                      src={`http://127.0.0.1:8000${pitchReport.video_url}`}
+                      src={`${API_BASE_URL}${pitchReport.video_url}`}
                       controls
                       className="absolute inset-0 w-full h-full object-cover"
                     />

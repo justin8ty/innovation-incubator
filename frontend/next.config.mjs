@@ -5,9 +5,7 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  turbopack: {
-    root: __dirname,
-  },
+  output: "export",
   typescript: {
     ignoreBuildErrors: true,
   },

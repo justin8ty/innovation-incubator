@@ -7,6 +7,7 @@ import { Navigation } from "@/components/shared/navigation"
 import { UploadZone } from "@/components/shared/upload-zone"
 import { FormField } from "@/components/shared/form-field"
 import { cn } from "@/lib/utils"
+import { API_BASE_URL } from "@/lib/api"
 
 interface FormData {
   company_name: string
@@ -60,7 +61,7 @@ export default function CompanyPage() {
     formDataObj.append("role", "company")
 
     try {
-      const response = await fetch("http://127.0.0.1:8000/api/v1/upload", {
+      const response = await fetch(`${API_BASE_URL}/api/v1/upload`, {
         method: "POST",
         body: formDataObj,
       })
