@@ -6,7 +6,7 @@ from dotenv import load_dotenv
 load_dotenv(os.path.join(os.path.dirname(__file__), "..", ".env"))
 
 GCP_PROJECT_ID = os.getenv("GCP_PROJECT_ID")
-GCP_LOCATION = os.getenv("GCP_LOCATION", "us-west1")
+GCP_LOCATION = os.getenv("GCP_LOCATION", "asia-southeast1")
 DB_PATH = os.getenv("DB_PATH", "./rels.db")
 
 if GCP_PROJECT_ID:
